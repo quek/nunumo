@@ -181,11 +181,11 @@
          (file-position stream position)
          ,@body))))
 
-(define-stream-at-method write-8-at  (integer) (write-byte integer stream))
+(define-stream-at-method write-byte-at  (integer) (write-byte integer stream))
 (define-stream-at-method write-16-at (integer) (write-unsigned-byte-16 integer stream))
 (define-stream-at-method write-32-at (integer) (write-unsigned-byte-32 integer stream))
 (define-stream-at-method write-64-at (integer) (write-unsigned-byte-64 integer stream))
-(define-stream-at-method read-8-at  () (read-byte stream))
+(define-stream-at-method read-byte-at  () (read-byte stream))
 (define-stream-at-method read-16-at () (read-unsigned-byte-16 stream))
 (define-stream-at-method read-32-at () (read-unsigned-byte-32 stream))
 (define-stream-at-method read-64-at () (read-unsigned-byte-64 stream))
@@ -211,9 +211,10 @@
   (with-slots (file-length) stream
     file-length))
 
-(defun open-mmap-stream (path mmap-size &optional (extend 1.5))
+(defun open-mmap-stream (path mmap-size &key (extend 1.5)
+                                          (element-type '(unsigned-byte 8)))
   (make-instance 'mmap-stream
-                 :base-stream (open path :direction :io :element-type '(unsigned-byte 8)
+                 :base-stream (open path :direction :io :element-type element-type
                                          :if-exists :overwrite :if-does-not-exist :create)
                  :mmap-size mmap-size :ext extend))
 

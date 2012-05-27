@@ -17,6 +17,9 @@
 (defgeneric heap-file-alloc (heap-file))
 (defgeneric heap-file-free (heap-file position))
 (defgeneric heap-file-initialize (heap-file))
+(defgeneric heap-file-header-size (heap-file))
+(defgeneric heap-file-position-to-address (heap-file position))
+(defgeneric heap-file-address-to-pasition (heap-file address))
 
 
 (defclass* heap-lock ()
@@ -30,6 +33,10 @@
 (defclass* heap (heap-lock)
   ((directory)
    (heaps)))
+
+(defstruct address
+  (segment 0 :type (unsigned-byte 8))
+  (offset  0 :type (unsigned-byte 24)))
 
 (defstruct memory
   (address 0)
@@ -75,7 +82,7 @@
                          :key #'block-size-of
                          :test #'=)))
     (setf (memory-buffer memory)
-          (heap-file-read heap-file (free-address-of memory) (memory-buffer memory)))
+          (heap-file-read heap-file (memory-address memory) (memory-buffer memory)))
     memory))
 
 
@@ -95,6 +102,9 @@
 
 (defparameter *heap-magic-numbe* #(0 0 0 0 1 9 5 8))
 
+(defmethod heap-file-header-size (heap-file)
+  (length *heap-magic-numbe*))
+
 (defmethod heap-file-open (heap-file)
   (with-slots (stream file element-type) heap-file
     (setf stream
@@ -109,10 +119,7 @@
 
 (defmethod heap-file-initialize (heap-file)
   (with-slots (stream block-size) heap-file
-    (write-sequence *heap-magic-numbe* stream)
-    (write-byte-at stream
-                   (1- (* block-size 2))
-                   1)))
+    (write-sequence *heap-magic-numbe* stream)))
 
 (defmethod heap-file-open :after ((heap-file heap-file))
   (heap-file-collect-free-memories heap-file))
@@ -121,7 +128,7 @@
   (with-slots (block-size stream free-memories element-size) heap-file
     (let ((offset (1+ block-size)))
       (setf free-memories
-            (loop for position = (1- (* block-size 2))
+            (loop for position = (heap-file-header-size heap-file)
                     then (+ position offset)
                   for byte = (ignore-errors (read-byte-at stream position))
                   while byte
@@ -144,8 +151,11 @@
       (write-byte-at stream (+ position (block-size-of heap-file) -1) 1))))
 
 (defmethod heap-file-read ((heap-file heap-file) position buffer)
-  (read-seq-at (stream-of heap-file) buffer position :end (1- (block-size-of heap-file))))
+  (read-seq-at (stream-of heap-file) buffer position
+               :end (min (length buffer)
+                         (1- (block-size-of heap-file)))))
 
 (defmethod heap-file-write ((heap-file heap-file) position buffer)
-  (write-seq-at (stream-of heap-file) buffer position :end (min (length buffer)
-                                                                (1- (block-size-of heap-file)))))
+  (write-seq-at (stream-of heap-file) buffer position
+                :end (min (length buffer)
+                          (1- (block-size-of heap-file)))))

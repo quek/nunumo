@@ -7,7 +7,6 @@
                (:file "util")
                (:file "mmap")
                (:file "heap")
-               (:file "heap")
                (:file "byte-heap-file")
                (:file "thread")
                (:file "thread-pool")

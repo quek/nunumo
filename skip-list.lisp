@@ -34,28 +34,24 @@
 (defun lock (lock)
   (sb-thread:grab-mutex lock :waitp nil))
 
-(defun recursive-lock (lock)
-  (or (sb-thread:holding-mutex-p lock)
-      (sb-thread:grab-mutex lock :waitp nil)))
-
 (defun unlock (lock)
   (sb-thread:release-mutex lock))
 
 
 
 (defmethod find-node (skip-list key preds succs)
-  (let ((found nil)
-        (pred (head-of skip-list)))
-    (loop for layer from (1- (max-height-of skip-list)) downto 0
-          for curr = (svref (nexts-of pred) layer)
-          do (loop while (> key (key-of curr))
-                   do (setf pred curr
-                            curr (svref (nexts-of pred) layer)))
-             (if (and (not found) (= key (key-of curr)))
-                 (setf found layer))
-             (setf (svref preds layer) pred
-                   (svref succs layer) curr))
-    found))
+  (loop with found = nil
+        with pred = (head-of skip-list)
+        for layer from (1- (max-height-of skip-list)) downto 0
+        for curr = (svref (nexts-of pred) layer)
+        do (loop while (< (key-of curr) key)
+                 do (setf pred curr
+                          curr (svref (nexts-of pred) layer)))
+           (if (and (not found) (= key (key-of curr)))
+               (setf found layer))
+           (setf (svref preds layer) pred
+                 (svref succs layer) curr)
+        finally (return found)))
 
 (defmethod random-level (skip-list)
   (random (max-height-of skip-list)))

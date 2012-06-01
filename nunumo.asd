@@ -13,10 +13,10 @@
                (:file "server")
                (:file "client")
                (:file "nunumo")
-               (:file "nunumo-server")
-               (:file "nunumo-client")
                (:file "skip-list")
-               (:file "in-memory-skip-list-nunumo"))
+               (:file "in-memory-skip-list-nunumo")
+               (:file "nunumo-server")
+               (:file "nunumo-client"))
   :depends-on (:bordeaux-threads
                :anaphora
                :hu.dwim.defclass-star

@@ -1,6 +1,6 @@
 (in-package :nunumo)
 
-(defclass* nunumo-server (server inmemory-nunumo)
+(defclass* nunumo-server (server in-memory-skip-list-nunumo)
   ())
 
 (defmethod nunumo-open ((nunumo nunumo-server) &key (default-nunumo t))

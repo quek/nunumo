@@ -12,7 +12,9 @@
 (defgeneric set (key value))
 (defgeneric add (key value))
 (defgeneric replace (key value))
-(defgeneric cas (key value old-value))
+(defgeneric cas (key old-value new-value))
+(defgeneric inc (key))
+(defgeneric dec (key))
 
 
 (defmethod get (key)
@@ -29,8 +31,8 @@
   (when (get key)
     (set key value)))
 
-(defmethod cas (key value old-value)
-  (%cas *nunumo* key value old-value))
+(defmethod cas (key old-value new-value)
+  (%cas *nunumo* key old-value new-value))
 
 
 (defclass* nunumo ()
@@ -47,7 +49,11 @@
 (defgeneric nunumo-close (nunumo))
 (defgeneric %get (nunumo key))
 (defgeneric %set (nunumo key value))
-(defgeneric %cas (nunumo key value old-value))
+(defgeneric %add (nunumo key value))
+(defgeneric %replace (nunumo key value))
+(defgeneric %cas (nunumo key old-value new-value))
+(defgeneric %inc (nunumo key))
+(defgeneric %def (nunumo key))
 
 (defmethod nunumo-open ((nunumo nunumo) &key (default-nunumo t))
   (when default-nunumo

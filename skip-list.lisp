@@ -1,8 +1,42 @@
 (in-package :nunumo)
 
+(defgeneric key= (a b)
+  (:method (a b)
+    (eql a b)))
+(defgeneric key< (a b)
+  (:method ((a number) (b number))
+    (< a b))
+  (:method (a b)
+    (< (sxhash a) (sxhash b))))
+(defgeneric key<= (a b)
+  (:method (a b)
+    (or (key= a b)
+        (key< a b))))
+(defgeneric key> (a b)
+  (:method (a b)
+    (not (key<= a b))))
+(defgeneric key>= (a b)
+  (:method (a b)
+    (not (key< a b))))
+
+(defclass key ()
+  ())
+
+(defvar *head-key* (make-instance 'key))
+(defvar *tail-key* (make-instance 'key))
+
+(defmethod key< ((a (eql *head-key*)) b)
+  t)
+(defmethod key< (a (b (eql *head-key*)))
+  nil)
+(defmethod key< ((a (eql *tail-key*)) b)
+  nil)
+(defmethod key< (a (b (eql *tail-key*)))
+  t)
+
 (defclass* node ()
   ((key)
-   (val nil)
+   (value nil)
    (top-layer 0)
    (nexts)
    (marked nil)
@@ -20,12 +54,12 @@
 (defmethod initialize-instance :after ((skip-list skip-list) &key)
   (with-slots (head tail max-height) skip-list
     (setf tail (make-instance 'node
-                              :key most-positive-fixnum
+                              :key *tail-key*
                               :top-layer (1- max-height)
                               :nexts (make-array max-height :initial-element nil)
                               :fully-linked t))
     (setf head (make-instance 'node
-                              :key -1
+                              :key *head-key*
                               :top-layer (1- max-height)
                               :nexts (make-array max-height :initial-element tail)
                               :fully-linked t))
@@ -34,7 +68,7 @@
 
 
 (defun lock (lock)
-  (sb-thread:grab-mutex lock :waitp nil))
+  (sb-thread:grab-mutex lock :waitp t))
 
 (defun unlock (lock)
   (sb-thread:release-mutex lock))
@@ -46,10 +80,10 @@
         with pred = (head-of skip-list)
         for layer from (1- (max-height-of skip-list)) downto 0
         for curr = (svref (nexts-of pred) layer)
-        do (loop while (< (key-of curr) key)
+        do (loop while (key< (key-of curr) key)
                  do (setf pred curr
                           curr (svref (nexts-of pred) layer)))
-           (if (and (not found) (= key (key-of curr)))
+           (if (and (not found) (key= key (key-of curr)))
                (setf found layer))
            (setf (svref preds layer) pred
                  (svref succs layer) curr)
@@ -59,12 +93,12 @@
   (random (max-height-of skip-list)))
 
 (defun unlock-preds (preds highest-locked)
-  (loop with prev-pred = nil
-        for layer from 0 to highest-locked
-        for pred = (svref preds layer)
-        if (not (eq prev-pred pred))
-          do (setf prev-pred pred)
-             (unlock (lock-of pred))))
+  (let ((prev-pred nil))
+    (collect-ignore
+     (let ((pred (svref preds (scan-range :upto highest-locked))))
+       (unless (eq prev-pred pred)
+         (setf prev-pred pred)
+         (unlock (lock-of pred)))))))
 
 (defmethod add-node (skip-list key)
   (prog ((top-layer (random-level skip-list))
@@ -78,7 +112,8 @@
              (if (marked-of node-found)
                  ;; マークされていたらリトライ
                  (go :retry)
-                 (loop while (not (fully-linked-of node-found)))))
+                 (values (loop while (not (fully-linked-of node-found)))
+                         node-found)))
            (let ((highest-locked -1))
              (unwind-protect
                   (let ((valid t))
@@ -88,8 +123,7 @@
                           for pred = (svref preds layer)
                           for succ = (svref succs layer)
                           do (unless (eq pred prev-pred)
-                               (unless (lock (lock-of pred))
-                                 (go :retry))
+                               (lock (lock-of pred))
                                (setf highest-locked layer
                                      prev-pred pred))
                              (setf valid (and (not (marked-of pred))
@@ -105,7 +139,7 @@
                                (setf (svref (nexts-of (svref preds layer)) layer)
                                      new-node))
                       (setf (fully-linked-of new-node) t)
-                      (return new-node)))
+                      (return (values new-node new-node))))
                (unlock-preds preds highest-locked)))))))
 
 (defun ok-to-delete-p (candidate found)
@@ -128,8 +162,7 @@
            (unless marked-p
              (setf node-to-delete (svref succs found))
              (setf top-layer (top-layer-of node-to-delete))
-             (unless (lock (lock-of node-to-delete))
-               (go :retry))
+             (lock (lock-of node-to-delete))
              (when (marked-of node-to-delete)
                (unlock (lock-of node-to-delete))
                (return nil))
@@ -144,8 +177,7 @@
                           for pred = (svref preds layer)
                           for succ = (svref succs layer)
                           do (unless (eq pred prev-pred)
-                               (unless (lock (lock-of pred))
-                                 (go :retry))
+                               (lock (lock-of pred))
                                (setf highest-loked layer
                                      prev-pred pred))
                              (setf valid (and (not (marked-of pred))
@@ -155,8 +187,8 @@
                     (loop for layer from top-layer downto 0
                           do (setf (svref (nexts-of (svref preds layer)) layer)
                                    (svref (nexts-of node-to-delete) layer)))
-                    (unlock (lock-of node-to-delete))
                     (return t))
+               (unlock (lock-of node-to-delete))
                (unlock-preds preds highest-loked)))))))
 
 (defmethod contain-p (skip-list key)
@@ -169,17 +201,50 @@
                 (not (marked-of succ))
                 succ)))))
 
+(defmethod get-node (skip-list key)
+  (let* ((preds (make-array (max-height-of skip-list)))
+         (succs (make-array (max-height-of skip-list)))
+         (found (find-node skip-list key preds succs)))
+    (and found
+         (let ((succ (svref succs found)))
+           (and (fully-linked-of succ)
+                (not (marked-of succ))
+                succ)))))
+
+
 
 (let ((skip-list (make-instance 'skip-list)))
   (assert (not (contain-p skip-list 10)))
   (assert (add-node skip-list 10))
   (assert (not (add-node skip-list 10)))
   (assert (contain-p skip-list 10))
-  (add-node skip-list 8)
+  (assert (add-node skip-list 8))
   (assert (contain-p skip-list 8))
-  (print (add-node skip-list 12))
-  (assert (print (contain-p skip-list 12)))
+  (assert (add-node skip-list 12))
+  (assert (contain-p skip-list 12))
   (assert (remove-node skip-list 10))
   (assert (not (remove-node skip-list 10)))
   (assert (not (contain-p skip-list 10)))
+  (assert (add-node skip-list 'hello))
+  (assert (not (add-node skip-list 'hello)))
+  (assert (remove-node skip-list 'hello))
+  (assert (not (remove-node skip-list 'hello)))
+  (let ((threads (collect
+                     (sb-thread:make-thread
+                      (lambda (n)
+                        (declare (ignorable n))
+                        (dotimes (i 1000)
+                          (add-node skip-list (random most-positive-fixnum))
+                          (when (zerop (mod i 7))
+                            (remove-node skip-list i))))
+                      :arguments (list (scan-range :length 10))))))
+    (collect-ignore
+     (sb-thread:join-thread (scan threads))))
+  (print (collect-length (scan-fn 't
+                                  (lambda ()
+                                    (head-of skip-list))
+                                  (lambda (node)
+                                    (svref (nexts-of node) 0))
+                                  (lambda (node)
+                                    (eq node (tail-of skip-list))))))
   )

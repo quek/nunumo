@@ -10,11 +10,20 @@
 (defgeneric heap-lock (heap memory))
 (defgeneric heap-unlock (heap memory))
 
+(defmacro with-heap-lock ((heap memory) &body body)
+  (alexandria:once-only (heap memory)
+    `(progn
+       (heap-lock ,heap ,memory)
+       (unwind-protect
+            (progn ,@body)
+         (heap-unlock ,heap ,memory)))))
+
 
 (alexandria:define-constant +heap-magic-numbe+ #(0 0 0 0 1 9 5 8) :test 'equalp)
 (defconstant +heap-header-length+ 8)
 (defparameter *mmap-size* (* 1024 1024))
 (defconstant +min-block-size+ 16 "16 byte")
+(defconstant +block-meta-data-size+ 1 "1 byte. 1 bit 目が +heap-unuse+ の時は未使用")
 
 
 (defgeneric heap-to-address (heap block-size position))
@@ -29,8 +38,8 @@
 (defgeneric heap-file-free (heap-file position))
 (defgeneric heap-file-initialize (heap-file))
 (defgeneric heap-file-header-size (heap-file))
-(defgeneric heap-file-lock (heap position))
-(defgeneric heap-file-unlock (heap position))
+(defgeneric heap-file-lock (heap-file position))
+(defgeneric heap-file-unlock (heap-file position))
 
 
 (defclass* heap (cas-lock-mixin)
@@ -39,9 +48,9 @@
 
 
 (defstruct address
-  "シリアライズするために 15 byte のアドレス表現を使う。"
+  "シリアライズするために 16 byte のアドレス表現を使う。"
   (segment 0 :type (unsigned-byte 8))
-  (offset  0 :type (unsigned-byte 112)))
+  (offset  0 :type (unsigned-byte 120)))
 
 (defclass* memory ()
   ((address)
@@ -66,7 +75,8 @@
 
 (defmethod heap-to-address ((heap heap) block-size position)
   (make-address :segment (floor (- (log block-size 2) (log +min-block-size+ 2)))
-                :offset (/ (- position +heap-header-length+) block-size)))
+                :offset (/ (- position +heap-header-length+)
+                           (+ block-size +block-meta-data-size+))))
 
 (defmethod heap-from-address ((heap heap) address)
   (let ((block-size (ash +min-block-size+ (address-segment address))))
@@ -74,13 +84,15 @@
                   (heaps-of heap)
                   :key #'block-size-of
                   :test #'=)
-            (+ (* (address-offset address) block-size) +heap-header-length+))))
+            (+ (* (address-offset address)
+                  (+ block-size +block-meta-data-size+))
+               +heap-header-length+))))
 
 (defmethod heap-alloc ((heap heap) size &optional buffer)
   (let ((heap-file (find size
                          (heaps-of heap)
                          :key #'block-size-of
-                         :test #'<))) ; block-size の方が1バイト分大きくないといけない。
+                         :test #'<=)))
     (make-instance 'memory
                    :address (heap-to-address heap
                                              (block-size-of heap-file)
@@ -97,10 +109,23 @@
     (heap-file-read heap-file position (memory-buffer memory)))
   memory)
 
+(defmethod heap-read ((heap heap) (memory memory))
+  (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
+    (heap-file-read heap-file position (memory-buffer memory)))
+  memory)
+
 (defmethod heap-write ((heap heap) (memory memory))
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
     (heap-file-write heap-file position (memory-buffer memory)))
   memory)
+
+(defmethod heap-lock ((heap heap) (memory memory))
+  (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
+    (heap-file-lock heap-file position)))
+
+(defmethod heap-unlock ((heap heap) (memory memory))
+  (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
+    (heap-file-unlock heap-file position)))
 
 
 (defun make-heap-file (file block-size)
@@ -141,11 +166,13 @@
 
 (defconstant +heap-use+ 1)
 (defconstant +heap-unuse+ 0)
+(defconstant +heap-locked+ 1)
+(defconstant +heap-unlocked+ 0)
 
 (defmethod heap-file-collect-free-memories ((heap-file heap-file))
   "しっぽがフラグ"
   (with-slots (block-size stream free-memories element-size) heap-file
-    (let ((offset (1- block-size)))
+    (let ((offset block-size))
       (setf free-memories
             (loop for position = (+ (heap-file-header-size heap-file) offset)
                     then (+ position offset)
@@ -160,21 +187,39 @@
       (if free-memories
           (pop free-memories)
           (let ((position (file-length stream)))
-            (write-byte-at stream (+ position (1- block-size)) +heap-use+)
+            (write-byte-at stream (+ position block-size) +heap-use+)
             position)))))
 
 (defmethod heap-file-free ((heap-file heap-file) position)
   (with-slots (free-memories stream) heap-file
     (with-cas-lock (heap-file)
       (push position free-memories)
-      (write-byte-at stream (+ position (block-size-of heap-file) -1) +heap-unuse+))))
+      (write-byte-at stream (+ position (block-size-of heap-file)) +heap-unuse+))))
 
 (defmethod heap-file-read ((heap-file heap-file) position buffer)
   (read-seq-at (stream-of heap-file) buffer position
                :end (min (length buffer)
-                         (1- (block-size-of heap-file)))))
+                         (block-size-of heap-file))))
 
 (defmethod heap-file-write ((heap-file heap-file) position buffer)
   (write-seq-at (stream-of heap-file) buffer position
                 :end (min (length buffer)
-                          (1- (block-size-of heap-file)))))
+                          (block-size-of heap-file))))
+
+(defmethod heap-file-lock (heap-file position)
+  (with-slots (stream block-size) heap-file
+    (let ((position (+ position block-size)))
+      (loop
+        (with-cas-lock (heap-file)
+          (let ((byte (read-byte-at stream position)))
+            (when (zerop (logand +heap-locked+ byte))
+              (write-byte-at stream position (logior +heap-locked+ byte))
+              (return-from heap-file-lock))))
+        (sb-thread:thread-yield)))))
+
+(defmethod  heap-file-unlock (heap-file position)
+  (with-slots (stream block-size) heap-file
+    (let ((position (+ position block-size)))
+      (with-cas-lock (heap-file)
+        (let ((byte (read-byte-at stream position)))
+          (write-byte-at stream position (logxor +heap-locked+  byte)))))))

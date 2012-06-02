@@ -1,5 +1,13 @@
 (in-package :nunumo)
 
+(defclass cas-lock-mixin ()
+  ((cas-lock :initform nil)))
+
+(defmacro with-cas-lock ((cas-lock-mixin) &body body)
+  `(sb-thread::with-cas-lock ((slot-value ,cas-lock-mixin 'cas-lock))
+     ,@body))
+
+
 (defun make-spinlock ()
   (cons nil nil))
 

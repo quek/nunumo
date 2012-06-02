@@ -24,7 +24,7 @@
                 if (= 1 (logand 1 byte))
                   collect position))))
 
-(defmethod heap-alloc ((heap byte-heap-file))
+(defmethod heap-file-alloc ((heap byte-heap-file))
   (with-slots (free-memories stream) heap
     (with-heap-lock (heap)
       (if free-memories
@@ -34,7 +34,7 @@
             (write-byte-at stream position 1)
             position)))))
 
-(defmethod heap-free ((heap byte-heap-file) position)
+(defmethod heap-file-free ((heap byte-heap-file) position)
   (with-slots (free-memories stream) heap
     (with-heap-lock (heap)
       (push position free-memories)

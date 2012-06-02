@@ -34,46 +34,37 @@
 (defmethod key< (a (b (eql *tail-key*)))
   t)
 
-(defclass* node ()
+(defclass* in-memory-node ()
   ((key)
    (value nil)
    (top-layer 0)
    (nexts)
    (marked nil)
    (fully-linked nil)
-   (lock (sb-thread:make-mutex))))
+   (lock (make-lock))))
 
-(defclass* skip-list ()
+(defclass* in-memory-skip-list ()
   ((head)
    (tail)
-   (max-height 4)
-   (heap)))
+   (max-height 4)))
 
-(defmethod initialize-instance :after ((node node) &key)
+(defmethod initialize-instance :after ((node in-memory-node) &key)
   (setf (nexts-of node) (make-array (1+ (top-layer-of node)) :initial-element nil)))
 
-(defmethod initialize-instance :after ((skip-list skip-list) &key)
+(defmethod initialize-instance :after ((skip-list in-memory-skip-list) &key)
   (with-slots (head tail max-height) skip-list
-    (setf tail (make-instance 'node
+    (setf tail (make-instance 'in-memory-node
                               :key *tail-key*
                               :top-layer (1- max-height)
                               :nexts (make-array max-height :initial-element nil)
                               :fully-linked t))
-    (setf head (make-instance 'node
+    (setf head (make-instance 'in-memory-node
                               :key *head-key*
                               :top-layer (1- max-height)
                               :nexts (make-array max-height :initial-element tail)
                               :fully-linked t))
     (loop for layer from 0 below max-height
           do (setf (svref (nexts-of head) layer) tail))))
-
-
-(defun lock (lock)
-  (sb-thread:grab-mutex lock :waitp t))
-
-(defun unlock (lock)
-  (sb-thread:release-mutex lock))
-
 
 
 (defmethod find-node (skip-list key preds succs)
@@ -131,7 +122,7 @@
                                               (not (marked-of succ))
                                               (eq (svref (nexts-of pred) layer) succ))))
                     (or valid (go :retry))
-                    (let ((new-node (make-instance 'node
+                    (let ((new-node (make-instance 'in-memory-node
                                                    :key key
                                                    :top-layer top-layer)))
                       (loop for layer from 0 to top-layer
@@ -214,7 +205,7 @@
 
 
 
-(let ((skip-list (make-instance 'skip-list)))
+(let ((skip-list (make-instance 'in-memory-skip-list)))
   (assert (not (contain-p skip-list 10)))
   (assert (add-node skip-list 10))
   (assert (not (add-node skip-list 10)))

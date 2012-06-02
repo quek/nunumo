@@ -19,7 +19,9 @@
          (heap-unlock ,heap ,memory)))))
 
 
-(alexandria:define-constant +heap-magic-numbe+ #(0 0 0 0 1 9 5 8) :test 'equalp)
+(alexandria:define-constant +heap-magic-numbe+
+    (coerce #(0 0 0 0 1 9 5 8) 'octets)
+  :test 'equalp)
 (defconstant +heap-header-length+ 8)
 (defparameter *mmap-size* (* 1024 1024))
 (defconstant +min-block-size+ 16 "16 byte")
@@ -59,7 +61,7 @@
 
 (defun make-heap (directory)
   (ensure-directories-exist directory)
-  (make-instance 'heap-table
+  (make-instance 'heap
                  :directory directory
                  :heaps (collect
                             (let ((block-size (ash +min-block-size+ (scan-range :length 29))))
@@ -106,17 +108,17 @@
 
 (defmethod heap-read ((heap heap) (memory memory))
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
-    (heap-file-read heap-file position (memory-buffer memory)))
+    (heap-file-read heap-file position (buffer-of memory)))
   memory)
 
 (defmethod heap-read ((heap heap) (memory memory))
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
-    (heap-file-read heap-file position (memory-buffer memory)))
+    (heap-file-read heap-file position (buffer-of memory)))
   memory)
 
 (defmethod heap-write ((heap heap) (memory memory))
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
-    (heap-file-write heap-file position (memory-buffer memory)))
+    (heap-file-write heap-file position (buffer-of memory)))
   memory)
 
 (defmethod heap-lock ((heap heap) (memory memory))
@@ -157,6 +159,9 @@
                          buffer))
           (error "~a is not heap file." file)))))
 
+(defmethod heap-file-close (heap-file)
+  (close (stream-of heap-file)))
+
 (defmethod heap-file-initialize (heap-file)
   (with-slots (stream block-size) heap-file
     (write-sequence +heap-magic-numbe+ stream)))
@@ -174,10 +179,11 @@
   (with-slots (block-size stream free-memories element-size) heap-file
     (let ((offset block-size))
       (setf free-memories
-            (loop for position = (+ (heap-file-header-size heap-file) offset)
+            (loop with stream-length = (stream-length stream)
+                  for position = (+ (heap-file-header-size heap-file) offset)
                     then (+ position offset)
-                  for byte = (ignore-errors (read-byte-at stream position))
-                  while byte
+                  while (< position stream-length)
+                  for byte = (read-byte-at stream position)
                   if (= +heap-unuse+ (logand 1 byte))
                     collect position)))))
 
@@ -186,7 +192,7 @@
     (with-cas-lock (heap-file)
       (if free-memories
           (pop free-memories)
-          (let ((position (file-length stream)))
+          (let ((position (stream-length stream)))
             (write-byte-at stream (+ position block-size) +heap-use+)
             position)))))
 
@@ -223,3 +229,22 @@
       (with-cas-lock (heap-file)
         (let ((byte (read-byte-at stream position)))
           (write-byte-at stream position (logxor +heap-locked+  byte)))))))
+
+
+(let* ((dir (print "/tmp/heap-test/"))
+       (heap (progn (ignore-errors (sb-ext:delete-directory dir :recursive t))
+                    (make-heap dir))))
+  (heap-open heap)
+  (unwind-protect
+       (progn
+         (let ((memory1 (heap-alloc heap 8))
+               (memory2 (heap-alloc heap 8)))
+           (assert (= 0 (address-segment (address-of memory1))))
+           (assert (= 0 (address-offset (address-of memory1))))
+           (assert (= 0 (address-segment (address-of memory2))))
+           (assert (= 1 (address-offset (address-of memory2))))
+           (heap-free heap memory1)
+           (let ((memory3 (heap-alloc heap 16)))
+             (assert (= 0 (address-segment (address-of memory3))))
+             (assert (= 0 (address-offset (address-of memory3)))))))
+    (heap-close heap)))

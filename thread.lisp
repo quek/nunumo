@@ -69,9 +69,18 @@
         (return)))
     (bordeaux-threads:thread-yield)))
 
-(defun unlock (rw-lock)
+(defun rw-unlock (rw-lock)
   (bordeaux-threads:with-lock-held ((rw-lock-mutex rw-lock))
     (aif (rw-lock-write-lock rw-lock)
          (setf it nil)
          (decf (rw-lock-read-count rw-lock)))))
 
+
+(defun make-lock ()
+  (sb-thread:make-mutex))
+
+(defun lock (lock)
+  (sb-thread:grab-mutex lock :waitp t))
+
+(defun unlock (lock)
+  (sb-thread:release-mutex lock))

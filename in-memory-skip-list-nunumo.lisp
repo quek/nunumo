@@ -1,7 +1,7 @@
 (in-package :nunumo)
 
 (defclass* in-memory-skip-list-nunumo (nunumo)
-  ((skip-list (make-instance 'skip-list))))
+  ((skip-list (make-instance 'in-memory-skip-list))))
 
 (defmethod %get ((nunumo in-memory-skip-list-nunumo) key)
   (aif (get-node (skip-list-of nunumo) key)

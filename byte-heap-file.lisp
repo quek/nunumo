@@ -1,5 +1,8 @@
 (in-package :nunumo)
 
+;;;; このファイルはボツ
+
+
 (defgeneric heap-read-byte (byte-heap-file position))
 (defgeneric heap-write-byte (byte-heap-file position byte))
 
@@ -26,7 +29,7 @@
 
 (defmethod heap-file-alloc ((heap byte-heap-file))
   (with-slots (free-memories stream) heap
-    (with-heap-lock (heap)
+    (with-cas-lock (heap)
       (if free-memories
           (pop free-memories)
           (let ((position (file-length stream)))
@@ -36,7 +39,7 @@
 
 (defmethod heap-file-free ((heap byte-heap-file) position)
   (with-slots (free-memories stream) heap
-    (with-heap-lock (heap)
+    (with-cas-lock (heap)
       (push position free-memories)
       (write-byte-at stream position 1))))
 

@@ -151,14 +151,16 @@
 
 (defmethod initialize-instance :after ((skip-list skip-list) &key)
   (with-slots (head tail max-height) skip-list
-    (setf tail (make-node :key *tail-key*
-                          :top-layer (1- max-height)
-                          :fully-linked t))
-    (setf head (make-node :key *head-key*
-                          :top-layer (1- max-height)
-                          :fully-linked t))
-    (loop for layer from 0 below max-height
-          do (setf (svref (nexts-of head) layer) tail))))
+    (unless tail
+      (setf tail (make-node :key *tail-key*
+                            :top-layer (1- max-height)
+                            :fully-linked t)))
+    (unless head
+      (setf head (make-node :key *head-key*
+                            :top-layer (1- max-height)
+                            :fully-linked t))
+      (loop for layer from 0 below max-height
+            do (setf (svref (nexts-of head) layer) tail)))))
 
 
 (defmethod find-node ((skip-list skip-list) key preds succs)

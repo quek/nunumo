@@ -21,11 +21,8 @@
   (:method (a b)
     (not (key< a b))))
 
-(defclass key ()
-  ())
-
-(defvar *head-key* (make-instance 'key))
-(defvar *tail-key* (make-instance 'key))
+(defvar *head-key* '*head-key*)
+(defvar *tail-key* '*tail-key*)
 
 (defmethod key< ((a (eql *head-key*)) b)
   t)
@@ -42,23 +39,23 @@
    (tail nil)
    (max-height 4)))
 
-(defun make-root-skip-list (heap max-height)
-  (let* ((skip-list (make-instance 'skip-list :max-height max-height ))
+(defun make-skip-list (heap max-height)
+  (let* ((skip-list (make-instance 'skip-list :max-height max-height))
          (buffer (flex:with-output-to-sequence (out)
-                             (serialize skip-list out)))
+                   (serialize skip-list out)))
          (memory (heap-alloc heap (length buffer) buffer)))
     (heap-write heap memory)
     (values skip-list (address-of memory))))
 
 (defmethod serialize ((self skip-list) stream)
   (write-byte +tag-skip-list+ stream)
-  (serialize (head-of self) stream)
-  (serialize (tail-of self) stream)
+  (serialize (address-of (head-of self)) stream)
+  (serialize (address-of (tail-of self)) stream)
   (serialize (max-height-of self) stream))
 
 (defmethod deserialize-by-tag ((tag (eql +tag-skip-list+)) stream)
-  (let* ((head (deserialize stream))
-         (tail (deserialize stream))
+  (let* ((head (heap-read-object *heap* (deserialize stream)))
+         (tail (heap-read-object *heap* (deserialize stream)))
          (max-height (deserialize stream)))
     (make-instance 'skip-list
                    :head head
@@ -67,22 +64,57 @@
 
 
 (defclass* node ()
-  ((key)
+  ((address)
+   (key)
    (value +null-address+ :type address)
    (value-cache)
-   (top-layer 0)
+   (top-layer 0 :type ubyte)
    (nexts)
+   (nexts-cache)
    (marked nil)
    (fully-linked nil)))
 
+(defun make-node (&key key top-layer fully-linked)
+  (let ((node (make-instance 'node :key key
+                                   :top-layer top-layer
+                                   :fully-linked fully-linked)))
+    (setf (address-of node) (heap-write-object *heap* node))
+    node))
+
+(defun node-lock (node)
+  (heap-lock *heap* (address-of node)))
+
+(defun node-unlock (node)
+  (heap-unlock *heap* (address-of node)))
+
+
+(defconstant +node-value-offset+ 1)
+(defconstant +node-marked-offset+ 9)
+(defconstant +node-fully-linked-offset+ 10)
+(defconstant +node-nexts-offset+ 12)
+
 (defmethod serialize ((self node) stream)
-  (write-byte +tag-node+ stream)
-  (serialize (key-of self) stream)
-  (serialize (value-of self) stream)
-  (serialize (top-layer-of self) stream)
-  (serialize (nexts-of self) stream)
-  (serialize (marked-of self) stream)
-  (serialize (fully-linked-of self) stream))
+  (write-byte +tag-node+ stream)              ; 0
+  (serialize (slot-value self 'value) stream) ; 1
+  (serialize (marked-of self) stream)         ; 9
+  (serialize (fully-linked-of self) stream)   ; 10
+  (write-byte (top-layer-of self) stream)     ; 11
+  (loop with nexts = (slot-value self 'nexts) ; 12
+        for i to (top-layer-of self)
+        do (serialize (svref nexts i) stream))
+  (serialize (key-of self) stream))
+
+(defmethod deserialize-by-tag ((tag (eql +tag-node+)) stream)
+  (let ((node (make-instance 'node
+                             :value (deserialize stream)
+                             :marked (deserialize stream)
+                             :fully-linked (deserialize stream)
+                             :top-layer (read-byte stream))))
+    (loop with nexts = (slot-value node 'nexts)
+          for i to (top-layer-of node)
+          do (setf (svref nexts i) (deserialize stream)))
+    (setf (key-of node) (deserialize stream))
+    node))
 
 (defmethod value-of ((node node))
   (if (slot-boundp node 'value-cache)
@@ -91,43 +123,50 @@
             (heap-read-object *heap* (slot-value node 'value)))))
 
 (defmethod (setf value-of) (new-value (node node))
-  (with-slots (value) node
+  (with-slots (value value-cache address) node
     (unless (null-address-p value)
       (heap-free *heap* value))
-    (setf value (heap-write-objcet *heap* new-value))))
+    (heap-write-object-at *heap* new-value address +node-value-offset+)
+    (setf value (heap-write-object *heap* new-value)
+          value-cache new-value)))
 
+(defmethod next-node (node layer)
+  (with-slots (nexts nexts-cache) node
+    (or (svref nexts-cache layer)
+        (setf (svref nexts-cache layer)
+              (heap-read-object *heap* (svref nexts layer))))))
 
+(defmethod (setf next-node) (new-node (node node) layer)
+  (with-slots (nexts nexts-cache address) node
+    (let ((new-address (address-of new-node)))
+      (heap-serialize-at *heap* new-address address (+ +node-nexts-offset+
+                                                           (* 8 layer)))
+      (setf (svref nexts layer) new-address
+            (svref nexts-cache layer) new-node))))
 
+(defmethod (setf marked-of) :before (new-value (node node))
+  (heap-serialize-at *heap* new-value (address-of node) +node-marked-offset+))
 
-(defmethod next-node ((skip-list skip-list) node layer)
-  )
+(defmethod (setf fully-linked-of) :before (new-value (node node))
+  (heap-serialize-at *heap* new-value (address-of node) +node-fully-linked-offset+))
 
 (defmethod initialize-instance :after ((node node) &key)
-  (setf (nexts-of node) (make-array (1+ (top-layer-of node))
-                                    :initial-element +null-address+)))
+  (with-slots (nexts nexts-cache) node
+    (setf nexts (make-array (1+ (top-layer-of node))
+                            :initial-element +null-address+)
+          nexts-cache (make-array (1+ (top-layer-of node))
+                                  :initial-element nil))))
 
 (defmethod initialize-instance :after ((skip-list skip-list) &key)
   (with-slots (head tail max-height) skip-list
-    (setf tail (make-instance 'node
-                              :key *tail-key*
-                              :top-layer (1- max-height)
-                              :nexts (make-array max-height :initial-element nil)
-                              :fully-linked t))
-    (setf head (make-instance 'node
-                              :key *head-key*
-                              :top-layer (1- max-height)
-                              :nexts (make-array max-height :initial-element tail)
-                              :fully-linked t))
+    (setf tail (make-node :key *tail-key*
+                          :top-layer (1- max-height)
+                          :fully-linked t))
+    (setf head (make-node :key *head-key*
+                          :top-layer (1- max-height)
+                          :fully-linked t))
     (loop for layer from 0 below max-height
           do (setf (svref (nexts-of head) layer) tail))))
-
-
-(defun lock (lock)
-  (sb-thread:grab-mutex lock :waitp t))
-
-(defun unlock (lock)
-  (sb-thread:release-mutex lock))
-
 
 
 (defmethod find-node (skip-list key preds succs)
@@ -153,7 +192,7 @@
      (let ((pred (svref preds (scan-range :upto highest-locked))))
        (unless (eq prev-pred pred)
          (setf prev-pred pred)
-         (unlock (lock-of pred)))))))
+         (node-unlock pred))))))
 
 (defmethod add-node (skip-list key)
   (prog ((top-layer (random-level skip-list))
@@ -178,16 +217,15 @@
                           for pred = (svref preds layer)
                           for succ = (svref succs layer)
                           do (unless (eq pred prev-pred)
-                               (lock (lock-of pred))
+                               (node-lock pred)
                                (setf highest-locked layer
                                      prev-pred pred))
                              (setf valid (and (not (marked-of pred))
                                               (not (marked-of succ))
                                               (eq (svref (nexts-of pred) layer) succ))))
                     (or valid (go :retry))
-                    (let ((new-node (make-instance 'node
-                                                   :key key
-                                                   :top-layer top-layer)))
+                    (let ((new-node (make-node :key key
+                                               :top-layer top-layer)))
                       (loop for layer from 0 to top-layer
                             do (setf (svref (nexts-of new-node) layer)
                                      (svref succs layer))
@@ -217,9 +255,9 @@
            (unless marked-p
              (setf node-to-delete (svref succs found))
              (setf top-layer (top-layer-of node-to-delete))
-             (lock (lock-of node-to-delete))
+             (node-lock node-to-delete)
              (when (marked-of node-to-delete)
-               (unlock (lock-of node-to-delete))
+               (node-unlock node-to-delete)
                (return nil))
              (setf (marked-of node-to-delete) t
                    marked-p t))
@@ -232,7 +270,7 @@
                           for pred = (svref preds layer)
                           for succ = (svref succs layer)
                           do (unless (eq pred prev-pred)
-                               (lock (lock-of pred))
+                               (node-lock pred)
                                (setf highest-loked layer
                                      prev-pred pred))
                              (setf valid (and (not (marked-of pred))
@@ -243,7 +281,7 @@
                           do (setf (svref (nexts-of (svref preds layer)) layer)
                                    (svref (nexts-of node-to-delete) layer)))
                     (return t))
-               (unlock (lock-of node-to-delete))
+               (node-unlock node-to-delete)
                (unlock-preds preds highest-loked)))))))
 
 (defmethod contain-p (skip-list key)
@@ -268,4 +306,13 @@
 
 
 
-
+(let* ((dir (print "/tmp/test-skip-list/"))
+       (*heap* (progn (ignore-errors (sb-ext:delete-directory dir :recursive t))
+                      (heap-open (make-heap dir))))
+       (skip-list (make-skip-list *heap* 8)))
+    (unwind-protect
+         (progn
+           (let ((node (add-node skip-list 1)))
+             (setf (value-of node) 11))
+           (assert (= 11 (value-of (get-node skip-list 1)))))
+    (heap-close *heap*)))

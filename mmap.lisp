@@ -181,7 +181,7 @@
          (file-position stream position)
          ,@body))))
 
-(define-stream-at-method write-byte-at  (integer) (write-byte integer stream))
+(define-stream-at-method write-byte-at  (byte) (write-byte byte stream))
 (define-stream-at-method write-16-at (integer) (write-unsigned-byte-16 integer stream))
 (define-stream-at-method write-32-at (integer) (write-unsigned-byte-32 integer stream))
 (define-stream-at-method write-64-at (integer) (write-unsigned-byte-64 integer stream))

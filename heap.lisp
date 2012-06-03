@@ -8,7 +8,9 @@
 (defgeneric heap-read (heap memory))
 (defgeneric heap-write (heap memory))
 (defgeneric heap-read-object (heap address))
-(defgeneric heap-write-objcet (heap object))
+(defgeneric heap-write-object (heap object))
+(defgeneric heap-write-object-at (heap object address offset))
+(defgeneric heap-serialize-at (heap object address offset))
 (defgeneric heap-lock (heap memory))
 (defgeneric heap-unlock (heap memory))
 
@@ -52,10 +54,11 @@
 
 (defconstant +size-of-address+ 7)
 
-(defstruct address
-  "シリアライズするために 7 byte のアドレス表現を使う。"
-  (segment 0 :type (unsigned-byte 8))
-  (offset  0 :type (unsigned-byte 56)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defstruct address
+    "シリアライズするために 7 byte のアドレス表現を使う。"
+    (segment 0 :type (unsigned-byte 8))
+    (offset  0 :type (unsigned-byte 56))))
 
 (alexandria:define-constant +null-address+
     (make-address :segment #xff :offset 0)
@@ -104,7 +107,8 @@
                               block-size)))))
 
 (defmethod heap-open ((heap heap))
-  (collect-ignore (heap-file-open (scan (heaps-of heap)))))
+  (collect-ignore (heap-file-open (scan (heaps-of heap))))
+  heap)
 
 (defmethod heap-close ((heap heap))
   (collect-ignore (heap-file-close (scan (heaps-of heap)))))
@@ -169,19 +173,44 @@
   (flex:with-input-from-sequence (in (heap-read heap address))
     (deserialize in)))
 
-(defmethod heap-write-objcet ((heap heap) object)
+(defmethod heap-write-object ((heap heap) object)
   (let* ((buffer (flex:with-output-to-sequence (out)
                    (serialize object out)))
          (memory (heap-alloc heap (length buffer) buffer)))
     (heap-write heap memory)
     (address-of memory)))
 
+(defmethod heap-write-object-at ((heap heap) object address offset)
+  (heap-serialize-at heap
+                     (heap-write-object heap object)
+                     address
+                     offset))
+
+(defmethod heap-serialize-at ((heap heap) object address offset)
+  (multiple-value-bind (heap-file position) (heap-from-address heap address)
+    (heap-file-write heap-file
+                     (+ position offset)
+                     (flex:with-output-to-sequence (out)
+                       (serialize object out)))))
+
+(defmethod heap-write-byte-at ((heap heap) byte address offset)
+  (multiple-value-bind (heap-file position) (heap-from-address heap address)
+    (heap-file-write-byte heap-file (+ position offset) byte)))
+
 (defmethod heap-lock ((heap heap) (memory memory))
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
     (heap-file-lock heap-file position)))
 
+(defmethod heap-lock ((heap heap) (address address))
+  (multiple-value-bind (heap-file position) (heap-from-address heap address)
+    (heap-file-lock heap-file position)))
+
 (defmethod heap-unlock ((heap heap) (memory memory))
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
+    (heap-file-unlock heap-file position)))
+
+(defmethod heap-unlock ((heap heap) (address address))
+  (multiple-value-bind (heap-file position) (heap-from-address heap address)
     (heap-file-unlock heap-file position)))
 
 
@@ -263,6 +292,10 @@
   (write-seq-at (stream-of heap-file) buffer position
                 :end (min (length buffer)
                           (block-size-of heap-file))))
+
+(defmethod heap-file-write-byte ((heap-file heap-file) position byte)
+  (write-byte-at (stream-of heap-file) position byte))
+
 
 (defmethod heap-file-lock (heap-file position)
   (with-slots (stream block-size) heap-file

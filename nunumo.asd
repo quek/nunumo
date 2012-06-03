@@ -10,7 +10,6 @@
                (:file "thread-pool")
                (:file "mmap")
                (:file "heap")
-               (:file "byte-heap-file")
                (:file "server")
                (:file "client")
                (:file "nunumo")

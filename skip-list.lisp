@@ -35,7 +35,8 @@
 
 
 (defclass* skip-list ()
-  ((head nil)
+  ((address)
+   (head nil)
    (tail nil)
    (max-height 4)))
 
@@ -45,7 +46,8 @@
                    (serialize skip-list out)))
          (memory (heap-alloc heap (length buffer) buffer)))
     (heap-write heap memory)
-    (values skip-list (address-of memory))))
+    (setf (address-of skip-list) (address-of memory))
+    skip-list))
 
 (defmethod serialize ((self skip-list) stream)
   (write-byte +tag-skip-list+ stream)
@@ -67,10 +69,8 @@
   ((address)
    (key)
    (value +null-address+ :type address)
-   (value-cache)
    (top-layer 0 :type ubyte)
    (nexts)
-   (nexts-cache)
    (marked nil)
    (fully-linked nil)))
 
@@ -117,31 +117,26 @@
     node))
 
 (defmethod value-of ((node node))
-  (if (slot-boundp node 'value-cache)
-      (slot-value node 'value-cache)
-      (setf (slot-value node 'value-cache)
-            (heap-read-object *heap* (slot-value node 'value)))))
+  (heap-read-object *heap* (slot-value node 'value)))
 
 (defmethod (setf value-of) (new-value (node node))
-  (with-slots (value value-cache address) node
+  (with-slots (value address) node
     (unless (null-address-p value)
       (heap-free *heap* value))
-    (setf value (heap-write-object-at *heap* new-value address +node-value-offset+)
-          value-cache new-value)))
+    (setf value (heap-write-object-at *heap* new-value address +node-value-offset+))
+    new-value))
 
 (defmethod next-node (node layer)
-  (with-slots (nexts nexts-cache) node
-    (or (svref nexts-cache layer)
-        (setf (svref nexts-cache layer)
-              (heap-read-object *heap* (svref nexts layer))))))
+  (with-slots (nexts) node
+    (heap-read-object *heap* (svref nexts layer))))
 
 (defmethod (setf next-node) (new-node (node node) layer)
-  (with-slots (nexts nexts-cache address) node
+  (with-slots (nexts address) node
     (let ((new-address (address-of new-node)))
       (heap-serialize-at *heap* new-address address (+ +node-nexts-offset+
-                                                           (* 8 layer)))
-      (setf (svref nexts layer) new-address
-            (svref nexts-cache layer) new-node))))
+                                                       (* 8 layer)))
+      (setf (svref nexts layer) new-address)))
+  new-node)
 
 (defmethod (setf marked-of) :before (new-value (node node))
   (heap-serialize-at *heap* new-value (address-of node) +node-marked-offset+))
@@ -150,11 +145,9 @@
   (heap-serialize-at *heap* new-value (address-of node) +node-fully-linked-offset+))
 
 (defmethod initialize-instance :after ((node node) &key)
-  (with-slots (nexts nexts-cache) node
+  (with-slots (nexts) node
     (setf nexts (make-array (1+ (top-layer-of node))
-                            :initial-element +null-address+)
-          nexts-cache (make-array (1+ (top-layer-of node))
-                                  :initial-element nil))))
+                            :initial-element +null-address+))))
 
 (defmethod initialize-instance :after ((skip-list skip-list) &key)
   (with-slots (head tail max-height) skip-list
@@ -168,7 +161,7 @@
           do (setf (svref (nexts-of head) layer) tail))))
 
 
-(defmethod find-node (skip-list key preds succs)
+(defmethod find-node ((skip-list skip-list) key preds succs)
   (loop with found = nil
         with pred = (head-of skip-list)
         for layer from (1- (max-height-of skip-list)) downto 0
@@ -182,10 +175,10 @@
                  (svref succs layer) curr)
         finally (return found)))
 
-(defmethod random-level (skip-list)
+(defmethod random-level ((skip-list skip-list))
   (random (max-height-of skip-list)))
 
-(defun unlock-preds (preds highest-locked)
+(defmethod unlock-preds ((skip-list skip-list) preds highest-locked)
   (let ((prev-pred nil))
     (collect-ignore
      (let ((pred (svref preds (scan-range :upto highest-locked))))
@@ -193,7 +186,7 @@
          (setf prev-pred pred)
          (node-unlock pred))))))
 
-(defmethod add-node (skip-list key)
+(defmethod add-node ((skip-list skip-list) key)
   (prog ((top-layer (random-level skip-list))
          (preds (make-array (max-height-of skip-list)))
          (succs (make-array (max-height-of skip-list))))
@@ -232,14 +225,14 @@
                                      new-node))
                       (setf (fully-linked-of new-node) t)
                       (return (values new-node new-node))))
-               (unlock-preds preds highest-locked)))))))
+               (unlock-preds skip-list preds highest-locked)))))))
 
-(defun ok-to-delete-p (candidate found)
+(defmethod ok-to-delete-p ((skip-list skip-list) candidate found)
   (and (fully-linked-of candidate)
        (= (top-layer-of candidate) found)
        (not (marked-of candidate))))
 
-(defmethod remove-node (skip-list key)
+(defmethod remove-node ((skip-list skip-list) key)
   (prog ((node-to-delete nil)
          (marked-p nil)
          (top-layer -1)
@@ -249,7 +242,7 @@
    :retry
      (setf found (find-node skip-list key preds succs))
      (if (or marked-p
-             (and found (ok-to-delete-p (svref succs found) found)))
+             (and found (ok-to-delete-p skip-list (svref succs found) found)))
          (progn
            (unless marked-p
              (setf node-to-delete (svref succs found))
@@ -281,9 +274,9 @@
                                    (svref (nexts-of node-to-delete) layer)))
                     (return t))
                (node-unlock node-to-delete)
-               (unlock-preds preds highest-loked)))))))
+               (unlock-preds skip-list preds highest-loked)))))))
 
-(defmethod contain-p (skip-list key)
+(defmethod contain-p ((skip-list skip-list) key)
   (let* ((preds (make-array (max-height-of skip-list)))
          (succs (make-array (max-height-of skip-list)))
          (found (find-node skip-list key preds succs)))
@@ -293,7 +286,7 @@
                 (not (marked-of succ))
                 succ)))))
 
-(defmethod get-node (skip-list key)
+(defmethod get-node ((skip-list skip-list) key)
   (let* ((preds (make-array (max-height-of skip-list)))
          (succs (make-array (max-height-of skip-list)))
          (found (find-node skip-list key preds succs)))

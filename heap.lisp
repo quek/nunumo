@@ -240,7 +240,7 @@
           (open-mmap-stream file *mmap-size* :element-type element-type :extend nil))
     (if (zerop (stream-length stream))
         (heap-file-initialize heap-file)
-        (unless (equal +heap-magic-numbe+
+        (unless (equalp +heap-magic-numbe+
                        (let ((buffer (make-buffer +heap-header-length+)))
                          (read-sequence buffer stream)
                          buffer))

@@ -1,39 +1,5 @@
 (in-package :nunumo)
 
-(defgeneric key= (a b)
-  (:method (a b)
-    (eql a b)))
-(defgeneric key< (a b)
-  (:method ((a number) (b number))
-    (< a b))
-  (:method (a b)
-    (< (sxhash a) (sxhash b))))
-(defgeneric key<= (a b)
-  (:method (a b)
-    (or (key= a b)
-        (key< a b))))
-(defgeneric key> (a b)
-  (:method (a b)
-    (not (key<= a b))))
-(defgeneric key>= (a b)
-  (:method (a b)
-    (not (key< a b))))
-
-(defclass key ()
-  ())
-
-(defvar *head-key* (make-instance 'key))
-(defvar *tail-key* (make-instance 'key))
-
-(defmethod key< ((a (eql *head-key*)) b)
-  t)
-(defmethod key< (a (b (eql *head-key*)))
-  nil)
-(defmethod key< ((a (eql *tail-key*)) b)
-  nil)
-(defmethod key< (a (b (eql *tail-key*)))
-  t)
-
 (defclass* in-memory-node ()
   ((key)
    (value nil)
@@ -67,7 +33,7 @@
           do (setf (svref (nexts-of head) layer) tail))))
 
 
-(defmethod find-node (skip-list key preds succs)
+(defmethod find-node ((skip-list in-memory-skip-list) key preds succs)
   (loop with found = nil
         with pred = (head-of skip-list)
         for layer from (1- (max-height-of skip-list)) downto 0
@@ -81,10 +47,10 @@
                  (svref succs layer) curr)
         finally (return found)))
 
-(defmethod random-level (skip-list)
+(defmethod random-level ((skip-list in-memory-skip-list))
   (random (max-height-of skip-list)))
 
-(defun unlock-preds (preds highest-locked)
+(defmethod unlock-preds ((skip-list in-memory-skip-list) preds highest-locked)
   (let ((prev-pred nil))
     (collect-ignore
      (let ((pred (svref preds (scan-range :upto highest-locked))))
@@ -92,7 +58,7 @@
          (setf prev-pred pred)
          (unlock (lock-of pred)))))))
 
-(defmethod add-node (skip-list key)
+(defmethod add-node ((skip-list in-memory-skip-list) key)
   (prog ((top-layer (random-level skip-list))
          (preds (make-array (max-height-of skip-list)))
          (succs (make-array (max-height-of skip-list))))
@@ -132,14 +98,14 @@
                                      new-node))
                       (setf (fully-linked-of new-node) t)
                       (return (values new-node new-node))))
-               (unlock-preds preds highest-locked)))))))
+               (unlock-preds skip-list preds highest-locked)))))))
 
-(defun ok-to-delete-p (candidate found)
+(defmethod ok-to-delete-p ((skip-list in-memory-skip-list) candidate found)
   (and (fully-linked-of candidate)
        (= (top-layer-of candidate) found)
        (not (marked-of candidate))))
 
-(defmethod remove-node (skip-list key)
+(defmethod remove-node ((skip-list in-memory-skip-list) key)
   (prog ((node-to-delete nil)
          (marked-p nil)
          (top-layer -1)
@@ -149,7 +115,7 @@
    :retry
      (setf found (find-node skip-list key preds succs))
      (if (or marked-p
-             (and found (ok-to-delete-p (svref succs found) found)))
+             (and found (ok-to-delete-p skip-list (svref succs found) found)))
          (progn
            (unless marked-p
              (setf node-to-delete (svref succs found))
@@ -181,9 +147,9 @@
                                    (svref (nexts-of node-to-delete) layer)))
                     (return t))
                (unlock (lock-of node-to-delete))
-               (unlock-preds preds highest-loked)))))))
+               (unlock-preds skip-list preds highest-loked)))))))
 
-(defmethod contain-p (skip-list key)
+(defmethod contain-p ((skip-list in-memory-skip-list) key)
   (let* ((preds (make-array (max-height-of skip-list)))
          (succs (make-array (max-height-of skip-list)))
          (found (find-node skip-list key preds succs)))
@@ -193,7 +159,7 @@
                 (not (marked-of succ))
                 succ)))))
 
-(defmethod get-node (skip-list key)
+(defmethod get-node ((skip-list in-memory-skip-list) key)
   (let* ((preds (make-array (max-height-of skip-list)))
          (succs (make-array (max-height-of skip-list)))
          (found (find-node skip-list key preds succs)))

@@ -7,6 +7,8 @@
 (defgeneric heap-free (heap memory))
 (defgeneric heap-read (heap memory))
 (defgeneric heap-write (heap memory))
+(defgeneric heap-read-object (heap address))
+(defgeneric heap-write-objcet (heap object))
 (defgeneric heap-lock (heap memory))
 (defgeneric heap-unlock (heap memory))
 
@@ -54,6 +56,13 @@
   "シリアライズするために 7 byte のアドレス表現を使う。"
   (segment 0 :type (unsigned-byte 8))
   (offset  0 :type (unsigned-byte 56)))
+
+(alexandria:define-constant +null-address+
+    (make-address :segment #xff :offset 0)
+  :test 'equalp)
+
+(defun null-address-p (x)
+  (equalp x +null-address+))
 
 
 (defmethod serialize ((self address) stream)
@@ -131,10 +140,20 @@
       (heap-from-address heap (address-of memory))
     (heap-file-free heap-file position)))
 
+(defmethod heap-free ((heap heap) (address address))
+  (multiple-value-bind (heap-file position) (heap-from-address heap address)
+    (heap-file-free heap-file position)))
+
 (defmethod heap-read ((heap heap) (memory memory))
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
     (heap-file-read heap-file position (buffer-of memory)))
   memory)
+
+(defmethod heap-read ((heap heap) (address address))
+  (multiple-value-bind (heap-file position) (heap-from-address heap address)
+    (let ((buffer (make-buffer (block-size-of heap-file))))
+      (heap-file-read heap-file position buffer)
+      buffer)))
 
 (defmethod heap-read ((heap heap) (memory memory))
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
@@ -145,6 +164,17 @@
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))
     (heap-file-write heap-file position (buffer-of memory)))
   memory)
+
+(defmethod heap-read-object ((heap heap) (address address))
+  (flex:with-input-from-sequence (in (heap-read heap address))
+    (deserialize in)))
+
+(defmethod heap-write-objcet ((heap heap) object)
+  (let* ((buffer (flex:with-output-to-sequence (out)
+                   (serialize object out)))
+         (memory (heap-alloc heap (length buffer) buffer)))
+    (heap-write heap memory)
+    (address-of memory)))
 
 (defmethod heap-lock ((heap heap) (memory memory))
   (multiple-value-bind (heap-file position) (heap-from-address heap (address-of memory))

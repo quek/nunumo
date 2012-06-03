@@ -1,5 +1,7 @@
 (in-package :nunumo)
 
+(defvar *heap* nil)
+
 (defgeneric key= (a b)
   (:method (a b)
     (eql a b)))
@@ -36,39 +38,73 @@
 
 
 (defclass* skip-list ()
-  ((head)
-   (tail)
-   (max-height 4)
-   (file)
-   (heap)))
+  ((head nil)
+   (tail nil)
+   (max-height 4)))
+
+(defun make-root-skip-list (heap max-height)
+  (let* ((skip-list (make-instance 'skip-list :max-height max-height ))
+         (buffer (flex:with-output-to-sequence (out)
+                             (serialize skip-list out)))
+         (memory (heap-alloc heap (length buffer) buffer)))
+    (heap-write heap memory)
+    (values skip-list (address-of memory))))
+
+(defmethod serialize ((self skip-list) stream)
+  (write-byte +tag-skip-list+ stream)
+  (serialize (head-of self) stream)
+  (serialize (tail-of self) stream)
+  (serialize (max-height-of self) stream))
+
+(defmethod deserialize-by-tag ((tag (eql +tag-skip-list+)) stream)
+  (let* ((head (deserialize stream))
+         (tail (deserialize stream))
+         (max-height (deserialize stream)))
+    (make-instance 'skip-list
+                   :head head
+                   :tail tail
+                   :max-height max-height)))
+
 
 (defclass* node ()
   ((key)
-   (value nil)
+   (value +null-address+ :type address)
+   (value-cache)
    (top-layer 0)
    (nexts)
    (marked nil)
    (fully-linked nil)))
 
-(defun load-skip-list (file heap)
-  (with-open-file (stream file :element-type '(unsigned-byte 8))
-    (let* ((head-address (read-address stream 0))
-           (tail-address (read-address stream 8))
-           (max-height (read-byte stream))
-           (head (read-node heap head-address))
-           (tail (read-node heap tail-address)))
-      (make-instance 'skip-list
-                     :head head
-                     :tail tail
-                     :max-height max-height
-                     :file file
-                     :heap heap))))
+(defmethod serialize ((self node) stream)
+  (write-byte +tag-node+ stream)
+  (serialize (key-of self) stream)
+  (serialize (value-of self) stream)
+  (serialize (top-layer-of self) stream)
+  (serialize (nexts-of self) stream)
+  (serialize (marked-of self) stream)
+  (serialize (fully-linked-of self) stream))
+
+(defmethod value-of ((node node))
+  (if (slot-boundp node 'value-cache)
+      (slot-value node 'value-cache)
+      (setf (slot-value node 'value-cache)
+            (heap-read-object *heap* (slot-value node 'value)))))
+
+(defmethod (setf value-of) (new-value (node node))
+  (with-slots (value) node
+    (unless (null-address-p value)
+      (heap-free *heap* value))
+    (setf value (heap-write-objcet *heap* new-value))))
+
+
+
 
 (defmethod next-node ((skip-list skip-list) node layer)
   )
 
 (defmethod initialize-instance :after ((node node) &key)
-  (setf (nexts-of node) (make-array (1+ (top-layer-of node)) :initial-element nil)))
+  (setf (nexts-of node) (make-array (1+ (top-layer-of node))
+                                    :initial-element +null-address+)))
 
 (defmethod initialize-instance :after ((skip-list skip-list) &key)
   (with-slots (head tail max-height) skip-list
@@ -232,11 +268,4 @@
 
 
 
-(let ((directory "/tmp/test-skip-list/"))
-  (ignore-errors (sb-ext:delete-directory directory :recursive t))
-  (let ((heap (make-heap directory)))
-    (heap-open heap)
-    (let ((first-address (heap-alloc heap 16)))
-      (make-instance 'skip-list
-                     :heap heap))
-))
+

@@ -181,10 +181,12 @@
     (address-of memory)))
 
 (defmethod heap-write-object-at ((heap heap) object address offset)
-  (heap-serialize-at heap
-                     (heap-write-object heap object)
-                     address
-                     offset))
+  (let ((object-address (heap-write-object heap object)))
+    (heap-serialize-at heap
+                      object-address
+                      address
+                      offset)
+    object-address))
 
 (defmethod heap-serialize-at ((heap heap) object address offset)
   (multiple-value-bind (heap-file position) (heap-from-address heap address)
@@ -234,7 +236,8 @@
 (defmethod heap-file-open (heap-file)
   (with-slots (stream file element-type) heap-file
     (setf stream
-          (open-mmap-stream file *mmap-size* :element-type element-type))
+          ;; alloc の時に stream-length を使っているので :extend nil にしないと動かない。
+          (open-mmap-stream file *mmap-size* :element-type element-type :extend nil))
     (if (zerop (stream-length stream))
         (heap-file-initialize heap-file)
         (unless (equal +heap-magic-numbe+
@@ -328,14 +331,29 @@
            (assert (= 0 (address-offset (address-of memory1))))
            (assert (= 0 (address-segment (address-of memory2))))
            (assert (= 1 (address-offset (address-of memory2))))
+           (with-open-file (stream (merge-pathnames "8" dir))
+             (assert (= #.(+ 8 (* 2 9)) (file-length stream))))
            (heap-free heap memory1)
            (let ((memory3 (heap-alloc heap 8)))
              (assert (= 0 (address-segment (address-of memory3))))
              (assert (= 0 (address-offset (address-of memory3)))))
            (let ((memory4 (heap-alloc heap 8)))
              (assert (= 0 (address-segment (address-of memory4))))
-             (assert (= 2 (address-offset (address-of memory4)))))
+             (assert (= 2 (address-offset (address-of memory4))))
+             (with-open-file (stream (merge-pathnames "8" dir))
+               (assert (= #.(+ 8 (* 3 9)) (file-length stream)))))
            (setf memory1 (heap-alloc heap (ash +min-block-size+ 20)))
            (assert (= 20 (address-segment (address-of memory1))))
-           (assert (= 0 (address-offset (address-of memory1))))))
+           (assert (= 0 (address-offset (address-of memory1)))))
+         (with-open-file (stream (merge-pathnames "128" dir))
+           (assert (= #.(+ 8 (* 0 129)) (file-length stream))))
+         (heap-alloc heap 128)
+         (with-open-file (stream (merge-pathnames "128" dir))
+           (assert (= #.(+ 8 (* 1 129)) (file-length stream))))
+         (heap-alloc heap 128)
+         (with-open-file (stream (merge-pathnames "128" dir))
+           (assert (= #.(+ 8 (* 2 129)) (file-length stream))))
+         (heap-alloc heap 128)
+         (with-open-file (stream (merge-pathnames "128" dir))
+           (assert (= #.(+ 8 (* 3 129)) (file-length stream)))))
     (heap-close heap)))

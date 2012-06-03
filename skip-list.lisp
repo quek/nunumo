@@ -126,8 +126,7 @@
   (with-slots (value value-cache address) node
     (unless (null-address-p value)
       (heap-free *heap* value))
-    (heap-write-object-at *heap* new-value address +node-value-offset+)
-    (setf value (heap-write-object *heap* new-value)
+    (setf value (heap-write-object-at *heap* new-value address +node-value-offset+)
           value-cache new-value)))
 
 (defmethod next-node (node layer)
@@ -314,5 +313,8 @@
          (progn
            (let ((node (add-node skip-list 1)))
              (setf (value-of node) 11))
-           (assert (= 11 (value-of (get-node skip-list 1)))))
+           (assert (= 11 (value-of (get-node skip-list 1))))
+           (let ((node (add-node skip-list 'hello)))
+             (setf (value-of node) 'world))
+           (assert (eq 'world (value-of (get-node skip-list 'hello)))))
     (heap-close *heap*)))

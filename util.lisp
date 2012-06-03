@@ -1,14 +1,14 @@
 (in-package :nunumo)
 
-(defun scan-byte (var size)
+(defun scan-byte (integer size)
   (declare (optimizable-series-function))
   (scan-fn '(unsigned-byte 8)
            (lambda ()
-             (logand (ash var (* (1- size) -8)) #xff))
+             (logand (ash integer (* (1- size) -8)) #xff))
            (lambda (_)
              (declare (ignore _))
              (decf size)
-             (logand (ash var (* (1- size) -8)) #xff))
+             (logand (ash integer (* (1- size) -8)) #xff))
            (lambda (_)
              (declare (ignore _))
              (zerop size))))
@@ -20,11 +20,17 @@
                 (+ (ash acc 8) x))
               series))
 
+(defun vector-push-byte-extend (integer size vector)
+  (iterate ((i (scan-byte integer size)))
+    (vector-push-extend i vector)))
 
-(defun vector-push-byte-extend (vector var size)
-  (iterate ((i (scan-byte var size)))
-           (vector-push-extend i vector)))
+(defun write-integer (integer size stream)
+  (collect-stream stream (scan-byte integer size) #'write-byte))
 
+(defun read-integer (stream size)
+  (loop for i fixnum below size
+        for integer = (read-byte stream) then (+ (ash integer 8) (read-byte stream))
+         finally (return integer)))
 
 (defun sym (&rest args)
   (intern (apply #'concatenate 'string
@@ -52,41 +58,41 @@
              ,@(loop for (slot-name slot-init-val slot-size array-size) in slots
                      with offset = 0
                      collect
-                  (case slot-size
-                    (:array
-                       `(progn
-                         ,@(loop for i from 0 below array-size
-                                 collect `(setf (aref (,(sym name "-" slot-name) ,name) ,i)
-                                                (aref ,buffer ,offset))
-                                 do (incf offset))))
-                    (:atomic-int
-                       `(setf (atomic-int-value (,(sym name "-" slot-name) ,name))
-                              (collect-byte (scan (subseq ,buffer ,offset
-                                                          ,(incf offset 8))))))
-                    (t
-                       `(setf (,(sym name "-" slot-name) ,name)
-                              (collect-byte (scan (subseq ,buffer ,offset
-                                                          ,(incf offset slot-size))))))))))
+                     (case slot-size
+                       (:array
+                        `(progn
+                           ,@(loop for i from 0 below array-size
+                                   collect `(setf (aref (,(sym name "-" slot-name) ,name) ,i)
+                                                  (aref ,buffer ,offset))
+                                   do (incf offset))))
+                       (:atomic-int
+                        `(setf (atomic-int-value (,(sym name "-" slot-name) ,name))
+                               (collect-byte (scan (subseq ,buffer ,offset
+                                                           ,(incf offset 8))))))
+                       (t
+                        `(setf (,(sym name "-" slot-name) ,name)
+                               (collect-byte (scan (subseq ,buffer ,offset
+                                                           ,(incf offset slot-size))))))))))
          (defun ,(sym "WRITE-" name) (,name ,stream)
            (let ((,buffer (make-array ,total-size :element-type '(unsigned-byte 8))))
              ,@(loop for (slot-name slot-init-val slot-size array-size) in slots
                      collect
-                  (case slot-size
-                    (:array
-                       `(progn
-                          ,@(loop for i from 0 below array-size
-                                  collect `(setf (aref ,buffer ,(incf idx))
-                                                 (aref (,(sym name "-" slot-name) ,name) ,i)))))
-                    (:atomic-int
-                       `(let ((val (atomic-int-value (,(sym name "-" slot-name) ,name))))
-                          (setf ,@(loop for i from 56 downto 0 by 8
-                                        append `((aref ,buffer ,(incf idx))
-                                                 (ldb (byte 8  ,i) val))))))
-                    (t
-                       `(let ((val (,(sym name "-" slot-name) ,name)))
-                          (setf ,@(loop for i from (* 8 (1- slot-size)) downto 0 by 8
-                                        append `((aref ,buffer ,(incf idx))
-                                                 (ldb (byte 8  ,i) val))))))))
+                     (case slot-size
+                       (:array
+                        `(progn
+                           ,@(loop for i from 0 below array-size
+                                   collect `(setf (aref ,buffer ,(incf idx))
+                                                  (aref (,(sym name "-" slot-name) ,name) ,i)))))
+                       (:atomic-int
+                        `(let ((val (atomic-int-value (,(sym name "-" slot-name) ,name))))
+                           (setf ,@(loop for i from 56 downto 0 by 8
+                                         append `((aref ,buffer ,(incf idx))
+                                                  (ldb (byte 8  ,i) val))))))
+                       (t
+                        `(let ((val (,(sym name "-" slot-name) ,name)))
+                           (setf ,@(loop for i from (* 8 (1- slot-size)) downto 0 by 8
+                                         append `((aref ,buffer ,(incf idx))
+                                                  (ldb (byte 8  ,i) val))))))))
              (write-sequence ,buffer ,stream)))))))
 
 
@@ -100,19 +106,19 @@
                `(,(if (= i 10)
                       t
                       `(< num (ash ,i ,(* i 7))))
-                      (setf
-                        ,@(loop for j from 0 below i append
-                          (cond
-                            ((= j 0)
-                             `((aref buf (+ ,j start))
-                               (logior (ash num ,(* (1- i) -7)) #x80)))
-                            ((= j (1- i))
-                             `((aref buf (+ ,j start))
-                               (logand num #x7f)))
-                            (t
-                             `((aref buf (+ ,j start))
-                               (logior (logand (ash num ,(* (- i j 1) -7)) #x7f) #x80))))))
-                      ,i)))))
+                 (setf
+                  ,@(loop for j from 0 below i append
+                                               (cond
+                                                 ((= j 0)
+                                                  `((aref buf (+ ,j start))
+                                                    (logior (ash num ,(* (1- i) -7)) #x80)))
+                                                 ((= j (1- i))
+                                                  `((aref buf (+ ,j start))
+                                                    (logand num #x7f)))
+                                                 (t
+                                                  `((aref buf (+ ,j start))
+                                                    (logior (logand (ash num ,(* (- i j 1) -7)) #x7f) #x80))))))
+                 ,i)))))
 (defun-write-var-num)
 
 (defun read-var-num (buf size &optional (start 0))
@@ -127,7 +133,7 @@
 (defun write-fixnum (buf num width &optional (start 0) )
   (iterate ((v (scan-byte num width))
             (i (scan-range)))
-           (setf (aref buf (+ i start)) v)))
+    (setf (aref buf (+ i start)) v)))
 
 (declaim (inline read-fixnum))
 (defun read-fixnum (buffer width &optional (start 0))
@@ -146,16 +152,22 @@
       (alexandria:with-gensyms (i n)
         `(loop for ,i from (* 8 (1- ,size)) downto 0 by 8
                ,@(when (numberp p) `(for ,n from 0))
-               do (setf (aref ,buffer ,(if (numberp p) `(+ p ,n) `(incf ,p)))
+               do (setf (aref ,buffer ,(if (numberp p) `(+ ,p ,n) `(incf ,p)))
                         (ldb (byte 8 ,i) ,num))))))
 
 (defmacro from-bytes (buffer start end)
-  `(loop for i from ,start below ,end
-         for n = (aref ,buffer i) then (+ (ash n 8) (aref ,buffer i))
-         finally (return n)))
+  (alexandria:with-gensyms (i n)
+    `(loop for ,i fixnum from ,start below ,end
+           for ,n = (aref ,buffer ,i) then (+ (ash ,n 8) (aref ,buffer ,i))
+           finally (return ,n))))
 
 (defun make-buffer (size)
   (make-array size :element-type '(unsigned-byte 8)))
+
+(defun make-adjustable-buffer (&optional (size 16))
+  (make-array size :element-type 'ubyte
+                   :adjustable t
+                   :fill-pointer 0))
 
 (defun unsigned-byte-to-vector (unsigned-byte size)
   (let ((buffer (make-buffer size)))
@@ -171,51 +183,51 @@
         finally (return n)))
 
 (macrolet ((def-refs ()
-               `(progn
-                  ,@(loop for (x y) in '((ref-8 sb-sys:sap-ref-8)
-                                         (ref-16 sb-sys:sap-ref-16)
-                                         (ref-32 sb-sys:sap-ref-32)
-                                         (ref-64 sb-sys:sap-ref-64))
-                          collect `(defun ,x (sap offset)
-                                     (,y sap offset))
-                          collect `(defun (setf ,x) (value sap offset)
-                                     (setf (,y sap offset) value))))))
+             `(progn
+                ,@(loop for (x y) in '((ref-8 sb-sys:sap-ref-8)
+                                       (ref-16 sb-sys:sap-ref-16)
+                                       (ref-32 sb-sys:sap-ref-32)
+                                       (ref-64 sb-sys:sap-ref-64))
+                        collect `(defun ,x (sap offset)
+                                   (,y sap offset))
+                        collect `(defun (setf ,x) (value sap offset)
+                                   (setf (,y sap offset) value))))))
   (def-refs))
 
 (defun gref (x index)
   (typecase x
     (sb-sys:system-area-pointer
-       (ref-8 x index))
+     (ref-8 x index))
     (t
-       (aref x index))))
+     (aref x index))))
 
 (defun copy-sap-to-vector (sap sap-start vector vector-start length)
   (typecase vector
     (simple-vector
-       (sb-sys::with-pinned-objects (sap vector)
-         (sb-kernel::system-area-ub8-copy sap sap-start
-                                          (sb-sys::vector-sap vector) vector-start
-                                          length)))
+     (sb-sys::with-pinned-objects (sap vector)
+       (sb-kernel::system-area-ub8-copy sap sap-start
+                                        (sb-sys::vector-sap vector) vector-start
+                                        length)))
     (t
-       (loop repeat length
-             for i from sap-start
-             for j from vector-start
-             do (setf (aref vector j)
-                      (sb-sys:sap-ref-8 sap i))))))
+     (loop repeat length
+           for i from sap-start
+           for j from vector-start
+           do (setf (aref vector j)
+                    (sb-sys:sap-ref-8 sap i))))))
 
 (defun copy-vector-to-sap (vector vector-start sap sap-start length)
   (typecase vector
     (simple-vector
-       (sb-sys::with-pinned-objects (vector sap)
-         (sb-kernel::system-area-ub8-copy (sb-sys::vector-sap vector) vector-start
-                                          sap sap-start
-                                          length)))
+     (sb-sys::with-pinned-objects (vector sap)
+       (sb-kernel::system-area-ub8-copy (sb-sys::vector-sap vector) vector-start
+                                        sap sap-start
+                                        length)))
     (t
-       (loop repeat length
-             for i from vector-start
-             for j from sap-start
-             do (setf (sb-sys:sap-ref-8 sap j)
-                      (aref vector i))))))
+     (loop repeat length
+           for i from vector-start
+           for j from sap-start
+           do (setf (sb-sys:sap-ref-8 sap j)
+                    (aref vector i))))))
 
 (defun copy-sap-to-sap (sap-src sap-src-start sap-dest sap-dest-start length)
   (sb-sys::with-pinned-objects (sap-src sap-dest)

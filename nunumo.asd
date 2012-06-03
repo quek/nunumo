@@ -5,11 +5,12 @@
   :components ((:file "package")
                (:file "type")
                (:file "util")
+               (:file "serialize")
+               (:file "thread")
+               (:file "thread-pool")
                (:file "mmap")
                (:file "heap")
                (:file "byte-heap-file")
-               (:file "thread")
-               (:file "thread-pool")
                (:file "server")
                (:file "client")
                (:file "nunumo")
@@ -23,5 +24,7 @@
                :hu.dwim.defclass-star
                :sb-concurrency
                :usocket
+               :md5
+               :flexi-streams
                :info.read-eval-print.series-ext))
 

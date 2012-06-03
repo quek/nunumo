@@ -34,20 +34,38 @@
 (defmethod key< (a (b (eql *tail-key*)))
   t)
 
+
+(defclass* skip-list ()
+  ((head)
+   (tail)
+   (max-height 4)
+   (file)
+   (heap)))
+
 (defclass* node ()
   ((key)
    (value nil)
    (top-layer 0)
    (nexts)
    (marked nil)
-   (fully-linked nil)
-   (lock (sb-thread:make-mutex))))
+   (fully-linked nil)))
 
-(defclass* skip-list ()
-  ((head)
-   (tail)
-   (max-height 4)
-   (heap)))
+(defun load-skip-list (file heap)
+  (with-open-file (stream file :element-type '(unsigned-byte 8))
+    (let* ((head-address (read-address stream 0))
+           (tail-address (read-address stream 8))
+           (max-height (read-byte stream))
+           (head (read-node heap head-address))
+           (tail (read-node heap tail-address)))
+      (make-instance 'skip-list
+                     :head head
+                     :tail tail
+                     :max-height max-height
+                     :file file
+                     :heap heap))))
+
+(defmethod next-node ((skip-list skip-list) node layer)
+  )
 
 (defmethod initialize-instance :after ((node node) &key)
   (setf (nexts-of node) (make-array (1+ (top-layer-of node)) :initial-element nil)))
@@ -214,38 +232,11 @@
 
 
 
-(let ((skip-list (make-instance 'skip-list)))
-  (assert (not (contain-p skip-list 10)))
-  (assert (add-node skip-list 10))
-  (assert (not (add-node skip-list 10)))
-  (assert (contain-p skip-list 10))
-  (assert (add-node skip-list 8))
-  (assert (contain-p skip-list 8))
-  (assert (add-node skip-list 12))
-  (assert (contain-p skip-list 12))
-  (assert (remove-node skip-list 10))
-  (assert (not (remove-node skip-list 10)))
-  (assert (not (contain-p skip-list 10)))
-  (assert (add-node skip-list 'hello))
-  (assert (not (add-node skip-list 'hello)))
-  (assert (remove-node skip-list 'hello))
-  (assert (not (remove-node skip-list 'hello)))
-  (let ((threads (collect
-                     (sb-thread:make-thread
-                      (lambda (n)
-                        (declare (ignorable n))
-                        (dotimes (i 1000)
-                          (add-node skip-list (random most-positive-fixnum))
-                          (when (zerop (mod i 7))
-                            (remove-node skip-list i))))
-                      :arguments (list (scan-range :length 10))))))
-    (collect-ignore
-     (sb-thread:join-thread (scan threads))))
-  (print (collect-length (scan-fn 't
-                                  (lambda ()
-                                    (head-of skip-list))
-                                  (lambda (node)
-                                    (svref (nexts-of node) 0))
-                                  (lambda (node)
-                                    (eq node (tail-of skip-list))))))
-  )
+(let ((directory "/tmp/test-skip-list/"))
+  (ignore-errors (sb-ext:delete-directory directory :recursive t))
+  (let ((heap (make-heap directory)))
+    (heap-open heap)
+    (let ((first-address (heap-alloc heap 16)))
+      (make-instance 'skip-list
+                     :heap heap))
+))

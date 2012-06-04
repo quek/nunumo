@@ -128,7 +128,10 @@
 
 (defmethod next-node (node layer)
   (with-slots (nexts) node
-    (heap-read-object *heap* (svref nexts layer))))
+    (let* ((address (svref nexts layer))
+           (node (heap-read-object *heap* address)))
+      (setf (address-of node) address)
+      node)))
 
 (defmethod (setf next-node) (new-node (node node) layer)
   (with-slots (nexts address) node
@@ -160,17 +163,17 @@
                             :top-layer (1- max-height)
                             :fully-linked t))
       (loop for layer from 0 below max-height
-            do (setf (svref (nexts-of head) layer) tail)))))
+            do (setf (next-node head layer) tail)))))
 
 
 (defmethod find-node ((skip-list skip-list) key preds succs)
   (loop with found = nil
         with pred = (head-of skip-list)
         for layer from (1- (max-height-of skip-list)) downto 0
-        for curr = (svref (nexts-of pred) layer)
+        for curr = (next-node pred layer)
         do (loop while (key< (key-of curr) key)
                  do (setf pred curr
-                          curr (svref (nexts-of pred) layer)))
+                          curr (next-node pred layer)))
            (if (and (not found) (key= key (key-of curr)))
                (setf found layer))
            (setf (svref preds layer) pred
@@ -216,14 +219,15 @@
                                      prev-pred pred))
                              (setf valid (and (not (marked-of pred))
                                               (not (marked-of succ))
-                                              (eq (svref (nexts-of pred) layer) succ))))
+                                              (key= (key-of (next-node pred layer))
+                                                    (key-of succ)))))
                     (or valid (go :retry))
                     (let ((new-node (make-node :key key
                                                :top-layer top-layer)))
                       (loop for layer from 0 to top-layer
-                            do (setf (svref (nexts-of new-node) layer)
+                            do (setf (next-node new-node layer)
                                      (svref succs layer))
-                               (setf (svref (nexts-of (svref preds layer)) layer)
+                               (setf (next-node (svref preds layer) layer)
                                      new-node))
                       (setf (fully-linked-of new-node) t)
                       (return (values new-node new-node))))
@@ -268,12 +272,13 @@
                                (setf highest-loked layer
                                      prev-pred pred))
                              (setf valid (and (not (marked-of pred))
-                                              (eq (svref (nexts-of pred) layer) succ))))
+                                              (key= (key-of (next-node pred layer))
+                                                    (key-of succ)))))
                     (unless valid
                       (go :retry))
                     (loop for layer from top-layer downto 0
-                          do (setf (svref (nexts-of (svref preds layer)) layer)
-                                   (svref (nexts-of node-to-delete) layer)))
+                          do (setf (next-node (svref preds layer) layer)
+                                   (next-node node-to-delete layer)))
                     (return t))
                (node-unlock node-to-delete)
                (unlock-preds skip-list preds highest-loked)))))))

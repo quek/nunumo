@@ -28,7 +28,7 @@
                 (let ((skip-list (make-skip-list *heap* (max-height-of nunumo))))
                   (with-open-file (out skip-list-file :direction :output
                                                       :element-type '(unsigned-byte 8))
-                    (serialize skip-list out))
+                    (serialize (heap-write-object *heap* skip-list) out))
                   skip-list)))))
   (call-next-method nunumo :default-nunumo default-nunumo))
 

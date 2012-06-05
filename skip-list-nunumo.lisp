@@ -96,5 +96,16 @@
     (unwind-protect
          (progn
            (assert (= 999 (get 123)))
-           (assert (eq 'lisp (get 'hello))))
+           (assert (eq 'lisp (get 'hello)))
+           (let ((threads (collect
+                              (sb-thread:make-thread
+                               (lambda (n)
+                                 (declare (ignorable n))
+                                 (dotimes (i 1000)
+                                   (get (random most-positive-fixnum))
+                                   (set (random most-positive-fixnum)
+                                        (random most-positive-fixnum))))
+                               :arguments (list (scan-range :length 10))))))
+             (collect-ignore
+              (sb-thread:join-thread (scan threads)))))
       (nunumo-close nunumo))))

@@ -61,6 +61,8 @@
          (head (heap-read-object *heap* head-address))
          (tail (heap-read-object *heap* tail-address))
          (max-height (deserialize stream)))
+    (setf (address-of head) head-address
+          (address-of tail) tail-address)
     (make-instance 'skip-list
                    :head head
                    :tail tail

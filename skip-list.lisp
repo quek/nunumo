@@ -56,8 +56,10 @@
   (serialize (max-height-of self) stream))
 
 (defmethod deserialize-by-tag ((tag (eql +tag-skip-list+)) stream)
-  (let* ((head (heap-read-object *heap* (deserialize stream)))
-         (tail (heap-read-object *heap* (deserialize stream)))
+  (let* ((head-address (deserialize stream))
+         (tail-address (deserialize stream))
+         (head (heap-read-object *heap* head-address))
+         (tail (heap-read-object *heap* tail-address))
          (max-height (deserialize stream)))
     (make-instance 'skip-list
                    :head head

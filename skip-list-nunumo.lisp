@@ -87,12 +87,14 @@
            (assert (= 999 (get 123)))
            (assert (eq 'world (cas 'hello 'common 'lisp)))
            (assert (eq 'world (get 'hello)))
-           (assert (eq 'world (print (cas 'hello 'world 'lisp))))
+           (assert (eq 'world (cas 'hello 'world 'lisp)))
            (assert (eq 'lisp (get 'hello))))
       (nunumo-close nunumo)))
   (let ((nunumo (make-skip-list-nunumo dir)))
+    (print "reopen.")
     (nunumo-open nunumo)
     (unwind-protect
          (progn
-           (assert (eq 'list (get 'hello))))
+           (assert (= 999 (get 123)))
+           (assert (eq 'lisp (get 'hello))))
       (nunumo-close nunumo))))

@@ -11,6 +11,7 @@
 (defgeneric heap-write-object (heap object))
 (defgeneric heap-write-object-at (heap object address offset))
 (defgeneric heap-serialize-at (heap object address offset))
+(defgeneric heap-deserialize-at (heap address offset))
 (defgeneric heap-lock (heap memory))
 (defgeneric heap-unlock (heap memory))
 
@@ -194,6 +195,13 @@
                      (+ position offset)
                      (flex:with-output-to-sequence (out)
                        (serialize object out)))))
+
+(defmethod heap-deserialize-at ((heap heap) address offset)
+  (multiple-value-bind (heap-file position) (heap-from-address heap address)
+    (let ((buffer (make-buffer (block-size-of heap-file))))
+      (heap-file-read heap-file (+ position offset) buffer)
+      (flex:with-input-from-sequence (in buffer)
+        (deserialize in)))))
 
 (defmethod heap-write-byte-at ((heap heap) byte address offset)
   (multiple-value-bind (heap-file position) (heap-from-address heap address)

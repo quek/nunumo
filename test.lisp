@@ -53,6 +53,23 @@
     (heap-close heap)))
 
 
+
+;; skip-list
+(let* ((dir (print "/tmp/test-skip-list/"))
+       (*heap* (progn (ignore-errors (sb-ext:delete-directory dir :recursive t))
+                      (heap-open (make-heap dir))))
+       (skip-list (make-skip-list *heap* 8)))
+    (unwind-protect
+         (progn
+           (let ((node (add-node skip-list 1)))
+             (setf (value-of node) 11))
+           (assert (= 11 (value-of (get-node skip-list 1))))
+           (let ((node (add-node skip-list 'hello)))
+             (setf (value-of node) 'world))
+           (assert (eq 'world (value-of (get-node skip-list 'hello)))))
+      (heap-close *heap*)))
+
+
 ;; skip-list-nunumo
 (let ((dir "/tmp/test-skip-list-nununmo/"))
   (ignore-errors (sb-ext:delete-directory dir :recursive t))
@@ -86,7 +103,7 @@
                               (sb-thread:make-thread
                                (lambda (n)
                                  (declare (ignorable n))
-                                 (dotimes (i 1000)
+                                 (dotimes (i 10)
                                    (print (get (random most-positive-fixnum)))
                                    (set (random most-positive-fixnum)
                                         (random most-positive-fixnum))))

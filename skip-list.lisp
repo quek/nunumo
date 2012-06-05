@@ -74,15 +74,13 @@
    (key)
    (value +null-address+ :type address)
    (top-layer 0 :type ubyte)
-   (nexts)
-   (marked nil)
-   (fully-linked nil)))
+   (nexts)))
 
 (defun make-node (&key key top-layer fully-linked)
   (let ((node (make-instance 'node :key key
-                                   :top-layer top-layer
-                                   :fully-linked fully-linked)))
-    (setf (address-of node) (heap-write-object *heap* node))
+                                   :top-layer top-layer)))
+    (setf (address-of node) (heap-write-object *heap* node)
+          (fully-linked-of node) fully-linked)
     node))
 
 (defun node-lock (node)
@@ -100,8 +98,8 @@
 (defmethod serialize ((self node) stream)
   (write-byte +tag-node+ stream)              ; 0
   (serialize (slot-value self 'value) stream) ; 1
-  (serialize (marked-of self) stream)         ; 9
-  (serialize (fully-linked-of self) stream)   ; 10
+  (serialize nil stream)                      ; 9 marked
+  (serialize nil stream)                      ; 10 fully-linked
   (write-byte (top-layer-of self) stream)     ; 11
   (loop with nexts = (slot-value self 'nexts) ; 12
         for i to (top-layer-of self)
@@ -109,11 +107,14 @@
   (serialize (key-of self) stream))
 
 (defmethod deserialize-by-tag ((tag (eql +tag-node+)) stream)
-  (let ((node (make-instance 'node
-                             :value (deserialize stream)
-                             :marked (deserialize stream)
-                             :fully-linked (deserialize stream)
-                             :top-layer (read-byte stream))))
+  (let* ((value (deserialize stream))
+         (top-layer (progn
+                      (read-byte stream) ; marked
+                      (read-byte stream) ; fully-linked
+                      (read-byte stream)))
+         (node (make-instance 'node
+                             :value value
+                             :top-layer top-layer)))
     (loop with nexts = (slot-value node 'nexts)
           for i to (top-layer-of node)
           do (setf (svref nexts i) (deserialize stream)))
@@ -145,11 +146,19 @@
       (setf (svref nexts layer) new-address)))
   new-node)
 
-(defmethod (setf marked-of) :before (new-value (node node))
-  (heap-serialize-at *heap* new-value (address-of node) +node-marked-offset+))
+(defmethod marked-of ((node node))
+  (heap-deserialize-at *heap* (address-of node) +node-marked-offset+))
 
-(defmethod (setf fully-linked-of) :before (new-value (node node))
-  (heap-serialize-at *heap* new-value (address-of node) +node-fully-linked-offset+))
+(defmethod (setf marked-of) (new-value (node node))
+  (heap-serialize-at *heap* new-value (address-of node) +node-marked-offset+)
+  new-value)
+
+(defmethod fully-linked-of ((node node))
+  (heap-deserialize-at *heap* (address-of node) +node-fully-linked-offset+))
+
+(defmethod (setf fully-linked-of) (new-value (node node))
+  (heap-serialize-at *heap* new-value (address-of node) +node-fully-linked-offset+)
+  new-value)
 
 (defmethod initialize-instance :after ((node node) &key)
   (with-slots (nexts) node
@@ -160,12 +169,12 @@
   (with-slots (head tail max-height) skip-list
     (unless tail
       (setf tail (make-node :key *tail-key*
-                            :top-layer (1- max-height)
-                            :fully-linked t)))
+                            :top-layer (1- max-height)))
+      (setf (fully-linked-of tail) t))
     (unless head
       (setf head (make-node :key *head-key*
-                            :top-layer (1- max-height)
-                            :fully-linked t))
+                            :top-layer (1- max-height)))
+      (setf (fully-linked-of head) t)
       (loop for layer from 0 below max-height
             do (setf (next-node head layer) tail)))))
 
@@ -308,17 +317,3 @@
                 succ)))))
 
 
-
-(let* ((dir (print "/tmp/test-skip-list/"))
-       (*heap* (progn (ignore-errors (sb-ext:delete-directory dir :recursive t))
-                      (heap-open (make-heap dir))))
-       (skip-list (make-skip-list *heap* 8)))
-    (unwind-protect
-         (progn
-           (let ((node (add-node skip-list 1)))
-             (setf (value-of node) 11))
-           (assert (= 11 (value-of (get-node skip-list 1))))
-           (let ((node (add-node skip-list 'hello)))
-             (setf (value-of node) 'world))
-           (assert (eq 'world (value-of (get-node skip-list 'hello)))))
-    (heap-close *heap*)))

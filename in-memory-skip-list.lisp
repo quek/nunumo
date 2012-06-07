@@ -58,7 +58,7 @@
          (setf prev-pred pred)
          (unlock (lock-of pred)))))))
 
-(defmethod add-node ((skip-list in-memory-skip-list) key)
+(defmethod add-node ((skip-list in-memory-skip-list) key value)
   (prog ((top-layer (random-level skip-list))
          (preds (make-array (max-height-of skip-list)))
          (succs (make-array (max-height-of skip-list))))
@@ -90,6 +90,7 @@
                     (or valid (go :retry))
                     (let ((new-node (make-instance 'in-memory-node
                                                    :key key
+                                                   :value value
                                                    :top-layer top-layer)))
                       (loop for layer from 0 to top-layer
                             do (setf (svref (nexts-of new-node) layer)
@@ -173,18 +174,18 @@
 
 (let ((skip-list (make-instance 'in-memory-skip-list)))
   (assert (not (contain-p skip-list 10)))
-  (assert (add-node skip-list 10))
-  (assert (not (add-node skip-list 10)))
+  (assert (add-node skip-list 10 t))
+  (assert (not (add-node skip-list 10 t)))
   (assert (contain-p skip-list 10))
-  (assert (add-node skip-list 8))
+  (assert (add-node skip-list 8 t))
   (assert (contain-p skip-list 8))
-  (assert (add-node skip-list 12))
+  (assert (add-node skip-list 12 t))
   (assert (contain-p skip-list 12))
   (assert (remove-node skip-list 10))
   (assert (not (remove-node skip-list 10)))
   (assert (not (contain-p skip-list 10)))
-  (assert (add-node skip-list 'hello))
-  (assert (not (add-node skip-list 'hello)))
+  (assert (add-node skip-list 'hello t))
+  (assert (not (add-node skip-list 'hello t)))
   (assert (remove-node skip-list 'hello))
   (assert (not (remove-node skip-list 'hello)))
   (let ((threads (collect
@@ -192,7 +193,7 @@
                       (lambda (n)
                         (declare (ignorable n))
                         (dotimes (i 1000)
-                          (add-node skip-list (random most-positive-fixnum))
+                          (add-node skip-list (random most-positive-fixnum) t)
                           (when (zerop (mod i 7))
                             (remove-node skip-list i))))
                       :arguments (list (scan-range :length 10))))))

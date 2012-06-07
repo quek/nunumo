@@ -76,11 +76,20 @@
    (top-layer 0 :type ubyte)
    (nexts)))
 
-(defun make-node (&key key top-layer fully-linked)
-  (let ((node (make-instance 'node :key key
-                                   :top-layer top-layer)))
+(defgeneric node= (x y)
+  (:method (x y)
+    nil)
+  (:method ((x node) (y node))
+    (key= (key-of x) (key-of y))))
+
+(defun make-node (&key key (value nil value-p) top-layer fully-linked)
+  (let ((node (make-instance 'node
+                             :key key
+                             :top-layer top-layer)))
     (setf (address-of node) (heap-write-object *heap* node)
           (fully-linked-of node) fully-linked)
+    (when value-p
+      (setf (value-of node)  value))
     node))
 
 (defun node-lock (node)
@@ -200,11 +209,11 @@
   (let ((prev-pred nil))
     (collect-ignore
      (let ((pred (svref preds (scan-range :upto highest-locked))))
-       (unless (eq prev-pred pred)
+       (unless (node= prev-pred pred)
          (setf prev-pred pred)
          (node-unlock pred))))))
 
-(defmethod add-node ((skip-list skip-list) key)
+(defmethod add-node ((skip-list skip-list) key value)
   (prog ((top-layer (random-level skip-list))
          (preds (make-array (max-height-of skip-list)))
          (succs (make-array (max-height-of skip-list))))
@@ -226,16 +235,16 @@
                           while valid
                           for pred = (svref preds layer)
                           for succ = (svref succs layer)
-                          do (unless (eq pred prev-pred)
+                          do (unless (node= pred prev-pred)
                                (node-lock pred)
                                (setf highest-locked layer
                                      prev-pred pred))
                              (setf valid (and (not (marked-of pred))
                                               (not (marked-of succ))
-                                              (key= (key-of (next-node pred layer))
-                                                    (key-of succ)))))
+                                              (node= (next-node pred layer) succ))))
                     (or valid (go :retry))
                     (let ((new-node (make-node :key key
+                                               :value value
                                                :top-layer top-layer)))
                       (loop for layer from 0 to top-layer
                             do (setf (next-node new-node layer)
@@ -280,13 +289,12 @@
                           while valid
                           for pred = (svref preds layer)
                           for succ = (svref succs layer)
-                          do (unless (eq pred prev-pred)
+                          do (unless (node= pred prev-pred)
                                (node-lock pred)
                                (setf highest-loked layer
                                      prev-pred pred))
                              (setf valid (and (not (marked-of pred))
-                                              (key= (key-of (next-node pred layer))
-                                                    (key-of succ)))))
+                                              (node= (next-node pred layer) succ))))
                     (unless valid
                       (go :retry))
                     (loop for layer from top-layer downto 0

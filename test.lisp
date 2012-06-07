@@ -61,11 +61,9 @@
        (skip-list (make-skip-list *heap* 8)))
     (unwind-protect
          (progn
-           (let ((node (add-node skip-list 1)))
-             (setf (value-of node) 11))
+           (add-node skip-list 1 11)
            (assert (= 11 (value-of (get-node skip-list 1))))
-           (let ((node (add-node skip-list 'hello)))
-             (setf (value-of node) 'world))
+           (add-node skip-list 'hello 'world)
            (assert (eq 'world (value-of (get-node skip-list 'hello)))))
       (heap-close *heap*)))
 
@@ -89,8 +87,24 @@
            (assert (eq 'world (cas 'hello 'common 'lisp)))
            (assert (eq 'world (get 'hello)))
            (assert (eq 'world (cas 'hello 'world 'lisp)))
-           (assert (eq 'lisp (get 'hello))))
+           (assert (eq 'lisp (get 'hello)))
+           (dotimes (i 100)
+             (print (get (random most-positive-fixnum)))
+             (set (random most-positive-fixnum)
+                  (random most-positive-fixnum)))
+           (let ((threads (collect
+                              (sb-thread:make-thread
+                               (lambda (n)
+                                 (declare (ignorable n))
+                                 (dotimes (i 100)
+                                   (get (random 100))
+                                   (set (random 100)
+                                        (random most-positive-fixnum))))
+                               :arguments (list (scan-range :length 10))))))
+             (collect-ignore
+              (sb-thread:join-thread (scan threads)))))
       (nunumo-close nunumo)))
+  #+nil
   (let ((nunumo (make-skip-list-nunumo dir)))
     (print "reopen.")
     (nunumo-open nunumo)

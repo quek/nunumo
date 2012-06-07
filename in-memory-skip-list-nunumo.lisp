@@ -11,14 +11,10 @@
 (defmethod %set ((nunumo in-memory-skip-list-nunumo) key value)
   (aif (get-node (skip-list-of nunumo) key)
        (setf (value-of it) value)
-       (multiple-value-bind (ok node) (add-node (skip-list-of nunumo) key)
-         (declare (ignore ok))
-         (setf (value-of node) value))))
+       (add-node (skip-list-of nunumo) key value)))
 
 (defmethod %add ((nunumo in-memory-skip-list-nunumo) key value)
-  (multiple-value-bind (ok node) (add-node (skip-list-of nunumo) key)
-    (if ok
-        (setf (value-of node) value))))
+  (add-node (skip-list-of nunumo) key value))
 
 (defmethod %replace ((nunumo in-memory-skip-list-nunumo) key value)
   (aif (get-node (skip-list-of nunumo) key)

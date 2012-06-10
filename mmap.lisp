@@ -211,6 +211,9 @@
   (with-slots (file-length) stream
     file-length))
 
+(defmethod stream-length (stream)
+  (file-length stream))
+
 (defun open-mmap-stream (path mmap-size &key (extend 1.5)
                                           (element-type '(unsigned-byte 8)))
   (make-instance 'mmap-stream

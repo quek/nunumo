@@ -88,10 +88,6 @@
            (assert (eq 'world (get 'hello)))
            (assert (eq 'world (cas 'hello 'world 'lisp)))
            (assert (eq 'lisp (get 'hello)))
-           (dotimes (i 100)
-             (print (get (random most-positive-fixnum)))
-             (set (random most-positive-fixnum)
-                  (random most-positive-fixnum)))
            (let ((threads (collect
                               (sb-thread:make-thread
                                (lambda (n)
@@ -104,7 +100,6 @@
              (collect-ignore
               (sb-thread:join-thread (scan threads)))))
       (nunumo-close nunumo)))
-  #+nil
   (let ((nunumo (make-skip-list-nunumo dir)))
     (print "reopen.")
     (nunumo-open nunumo)

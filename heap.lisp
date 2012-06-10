@@ -28,7 +28,7 @@
     (coerce #(0 0 0 0 1 9 5 8) 'octets)
   :test 'equalp)
 (defconstant +heap-header-length+ 8)
-(defparameter *mmap-size* (* 1024 1024))
+(defparameter *mmap-size* (* 1024 1024 10))
 (defconstant +min-block-size+ 8 "8 byte")
 (defconstant +block-meta-data-size+ 1 "1 byte. 1 bit 目が +heap-unuse+ の時は未使用")
 
@@ -199,8 +199,8 @@
 (defmethod heap-deserialize-at ((heap heap) address offset)
   (multiple-value-bind (heap-file position) (heap-from-address heap address)
     (let ((buffer (make-buffer (block-size-of heap-file))))
-      (heap-file-read heap-file (+ position offset) buffer)
-      (flex:with-input-from-sequence (in buffer)
+      (heap-file-read heap-file position buffer)
+      (flex:with-input-from-sequence (in buffer :start offset)
         (deserialize in)))))
 
 (defmethod heap-write-byte-at ((heap heap) byte address offset)
@@ -236,6 +236,10 @@
    (stream)
    (free-memories nil)
    (block-size)))
+
+(defmethod print-object ((heap-file heap-file) stream)
+  (print-unreadable-object (heap-file stream :type t)
+    (format stream "~d" (block-size-of heap-file))))
 
 
 (defmethod heap-file-header-size (heap-file)
@@ -284,15 +288,17 @@
   (with-slots (free-memories stream block-size element-type) heap-file
     (with-cas-lock (heap-file)
       (let ((position (or (pop free-memories)
-                          (stream-length stream))))
-        (write-byte-at stream (+ position block-size) +heap-use-bit+)
+                          (stream-length stream)))
+            (buffer (make-buffer (1+ block-size))))
+        (setf (aref buffer block-size) +heap-use-bit+)
+        (write-seq-at stream buffer position)
         position))))
 
 (defmethod heap-file-free ((heap-file heap-file) position)
-  (with-slots (free-memories stream) heap-file
+  (with-slots (free-memories stream block-size) heap-file
     (with-cas-lock (heap-file)
       (push position free-memories)
-      (write-byte-at stream (+ position (block-size-of heap-file)) 0))))
+      (write-byte-at stream (+ position block-size) 0))))
 
 (defmethod heap-file-read ((heap-file heap-file) position buffer)
   (read-seq-at (stream-of heap-file) buffer position

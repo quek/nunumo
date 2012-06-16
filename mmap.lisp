@@ -83,7 +83,8 @@
   (progn
     (file-position base-stream position)
     (write-sequence buffer base-stream)
-    (setf file-length end-position))
+    (when (< file-length end-position)
+      (setf file-length end-position)))
   (let ((mlen (- mmap-size position)))
     (copy-vector-to-sap buffer start sap position mlen)
     (file-position base-stream (1- mmap-size))

@@ -1,5 +1,19 @@
 (in-package :nunumo)
 
+;; mmap
+(let ((file "/tmp/mmap.txt"))
+  (ignore-errors (delete-file file))
+  (let ((f (open file :direction :io :element-type '(unsigned-byte 8)
+                      :if-exists :overwrite :if-does-not-exist :create)))
+    (with-open-stream (m (make-instance 'mmap-stream :base-stream f :mmap-size 5 :ext nil))
+      (assert (zerop (stream-length m)))
+      (write-sequence (make-buffer 8) m)))
+  (let ((f (open file :direction :io :element-type '(unsigned-byte 8)
+                      :if-exists :overwrite)))
+    (with-open-stream (m (make-instance 'mmap-stream :base-stream f :mmap-size 5 :ext nil))
+      (assert (= 8 (stream-length m))))))
+
+
 ;; inmemory-nunumo
 (let ((nunumo (make-instance 'inmemory-nunumo)))
   (nunumo-open nunumo)
@@ -52,6 +66,31 @@
            (assert (= most-positive-fixnum (heap-read-object heap address)))))
     (heap-close heap)))
 
+(print "heap reopen")
+(let* ((dir (print "/tmp/heap-test/"))
+       (heap (progn (ignore-errors (sb-ext:delete-directory dir :recursive t))
+                    (make-heap dir))))
+  (heap-open heap)
+  (unwind-protect
+       (progn
+         (let ((address (address-of (heap-alloc heap 128))))
+           (assert (= #.(+ 8 128 1) (stream-length (stream-of (nth 4 (heaps-of heap))))))
+           (assert (= 0 (address-offset address)))))
+    (heap-close heap))
+  (heap-open heap)
+  (unwind-protect
+       (let ((heap-file (nth 4 (heaps-of heap))))
+         (assert (null (free-memories-of heap-file))
+                 ((free-memories-of heap-file)))
+         (assert (= (+ 8 128 1) (stream-length (stream-of heap-file)))
+                   ((stream-length (stream-of heap-file))))
+         (let ((address (address-of (heap-alloc heap 128))))
+           (assert (= (+ 8 128 1 128 1) (stream-length (stream-of heap-file)))
+                   ((stream-length (stream-of heap-file))))
+           (assert (= 1 (address-offset address))
+                   ((address-offset address)))))
+    (heap-close heap)))
+
 
 
 ;; skip-list
@@ -67,6 +106,21 @@
            (assert (eq 'world (value-of (get-node skip-list 'hello)))))
       (heap-close *heap*)))
 
+
+;; skip-list-nunumo
+(let ((dir "/tmp/test-skip-list-nununmo/"))
+  (ignore-errors (sb-ext:delete-directory dir :recursive t))
+  (let ((nunumo (make-skip-list-nunumo dir)))
+    (nunumo-open nunumo)
+    (nunumo-close nunumo))
+  (let ((nunumo (make-skip-list-nunumo dir)))
+    (nunumo-open nunumo)
+    (print "reopened.")
+    (unwind-protect
+         (dotimes (i 100)
+           (set i t)
+           (get i))
+      (nunumo-close nunumo))))
 
 ;; skip-list-nunumo
 (let ((dir "/tmp/test-skip-list-nununmo/"))

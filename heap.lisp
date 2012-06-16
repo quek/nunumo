@@ -108,11 +108,13 @@
                               block-size)))))
 
 (defmethod heap-open ((heap heap))
-  (collect-ignore (heap-file-open (scan (heaps-of heap))))
+  (dolist (i (heaps-of heap))
+    (heap-file-open i))
   heap)
 
 (defmethod heap-close ((heap heap))
-  (collect-ignore (heap-file-close (scan (heaps-of heap)))))
+  (dolist (i (heaps-of heap))
+    (heap-file-close i)))
 
 (defmethod heap-to-address ((heap heap) block-size position)
   (make-address :segment (floor (- (log block-size 2) (log +min-block-size+ 2)))
@@ -281,7 +283,7 @@
                     then (+ position offset)
                   while (< position stream-length)
                   for byte = (read-byte-at stream (+ position block-size))
-                  unless (zerop (logand +heap-use-bit+ byte))
+                  when (zerop (logand +heap-use-bit+ byte))
                     collect position)))))
 
 (defmethod heap-file-alloc ((heap-file heap-file))

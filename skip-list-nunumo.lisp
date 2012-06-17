@@ -47,9 +47,11 @@
 
 (defmethod %set ((nunumo skip-list-nunumo) key value)
   (let ((*heap* (heap-of nunumo)))
-    (aif (get-node (skip-list-of nunumo) key)
-         (setf (value-of it) value)
-         (add-node (skip-list-of nunumo) key value))))
+    (multiple-value-bind (added node)
+        (add-node (skip-list-of nunumo) key value)
+      (unless added
+        (setf (value-of node) value))))
+  value)
 
 (defmethod %replace ((nunumo skip-list-nunumo) key value)
   (let ((*heap* (heap-of nunumo)))

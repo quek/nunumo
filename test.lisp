@@ -165,12 +165,12 @@
            (let ((threads (collect
                               (sb-thread:make-thread
                                (lambda (n)
-                                 (declare (ignorable n))
-                                 (dotimes (i 10)
-                                   (print (get (random most-positive-fixnum)))
+                                 (format t "~&thread ~d" n)
+                                 (dotimes (i 100)
+                                   (get (random most-positive-fixnum))
                                    (set (random most-positive-fixnum)
                                         (random most-positive-fixnum))))
-                               :arguments (list (scan-range :length 1))))))
+                               :arguments (list (scan-range :length 10))))))
              (collect-ignore
               (sb-thread:join-thread (scan threads)))))
       (nunumo-close nunumo))))

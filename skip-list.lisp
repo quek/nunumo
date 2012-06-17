@@ -225,8 +225,8 @@
              (if (marked-of node-found)
                  ;; マークされていたらリトライ
                  (go :retry)
-                 (values (loop while (not (fully-linked-of node-found)))
-                         node-found)))
+                 (return (values (loop while (not (fully-linked-of node-found)))
+                                 node-found))))
            (let ((highest-locked -1))
              (unwind-protect
                   (let ((valid t))
@@ -323,5 +323,3 @@
            (and (fully-linked-of succ)
                 (not (marked-of succ))
                 succ)))))
-
-

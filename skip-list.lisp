@@ -135,9 +135,10 @@
 
 (defmethod (setf value-of) (new-value (node node))
   (with-slots (value address) node
-    (unless (null-address-p value)
-      (heap-free *heap* value))
-    (setf value (heap-write-object-at *heap* new-value address +node-value-offset+))
+    (let ((old-value value))
+      (setf value (heap-write-object-at *heap* new-value address +node-value-offset+))
+      (unless (null-address-p old-value)
+        (heap-free *heap* old-value)))
     new-value))
 
 (defmethod next-node (node layer)

@@ -145,14 +145,15 @@
            (let ((threads (collect
                               (sb-thread:make-thread
                                (lambda (n)
-                                 (declare (ignorable n))
+                                 (format t "~&thread ~d" n)
                                  (dotimes (i 100)
-                                   (get (random 100))
-                                   (set (random 100)
-                                        (random most-positive-fixnum))))
+                                   (get (random most-positive-fixnum))
+                                   (set (random most-positive-fixnum)
+                                        (random most-positive-fixnum)))
+                                 n)
                                :arguments (list (scan-range :length 10))))))
              (collect-ignore
-              (sb-thread:join-thread (scan threads)))))
+              (format t "~&join ~d" (sb-thread:join-thread (scan threads))))))
       (nunumo-close nunumo)))
   (let ((nunumo (make-skip-list-nunumo dir)))
     (print "reopen.")
@@ -160,7 +161,7 @@
     (unwind-protect
          (progn
            (assert (= 999 (get 123)))
-           (assert (eq 'lisp (get 'hello)))
+           (assert (eq 'lisp (get 'hello)) ((get 'hello)))
            (set most-positive-fixnum most-positive-fixnum)
            (let ((threads (collect
                               (sb-thread:make-thread
@@ -169,8 +170,11 @@
                                  (dotimes (i 100)
                                    (get (random most-positive-fixnum))
                                    (set (random most-positive-fixnum)
-                                        (random most-positive-fixnum))))
+                                        (random most-positive-fixnum)))
+                                 n)
                                :arguments (list (scan-range :length 10))))))
              (collect-ignore
-              (sb-thread:join-thread (scan threads)))))
+              (format t "~&join ~d" (sb-thread:join-thread (scan threads))))))
       (nunumo-close nunumo))))
+
+(print "ok")
